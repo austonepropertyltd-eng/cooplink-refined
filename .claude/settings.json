@@ -1,0 +1,10 @@
+{
+  "alwaysThinkingEnabled": true,
+  "theme": "dark",
+  "autoAcceptEdits": false,
+  "permissions": {
+    "allowFileWrite": true,
+    "allowFileRead": true,
+    "allowTerminal": true
+  }
+}

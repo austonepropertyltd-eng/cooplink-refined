@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+**/google-services.json
+**/keystore/*.jks
+.env
+
+# On-device debugging scratch files (screenshots, uiautomator dumps) —
+# not project resources, real ones live under app/src/main/res/.
+/*.png
+/*.xml
+/.kotlin/

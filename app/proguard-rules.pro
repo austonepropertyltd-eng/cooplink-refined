@@ -1,0 +1,11 @@
+-keepattributes *Annotation*, Signature, EnclosingMethod
+-keep @kotlinx.serialization.Serializable class * { *; }
+-keep class io.cooplink.app.core.domain.** { *; }
+-dontwarn io.github.jan.supabase.**
+-keep class io.github.jan.supabase.** { *; }
+-dontwarn io.ktor.**
+-keep class io.ktor.** { *; }
+-keep class retrofit2.** { *; }
+-keep class com.google.firebase.** { *; }
+-keep class * extends androidx.room.RoomDatabase
+-assumenosideeffects class android.util.Log { public static int v(...); public static int d(...); }

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CoopLink</string>
+    <string name="biometric_title">Confirm Identity</string>
+    <string name="biometric_subtitle">Use biometric to access CoopLink</string>
+    <string name="session_expired">Session expired. Please sign in again.</string>
+</resources>
