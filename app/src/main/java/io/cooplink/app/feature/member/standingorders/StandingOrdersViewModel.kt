@@ -29,6 +29,15 @@ object OrderFrequency {
     val ALL = listOf(WEEKLY, BIWEEKLY, MONTHLY)
 }
 
+// Mirrors the standing_orders_purpose_check constraint confirmed on-device
+// (contribution/repayment are the only values the DB accepts; free text
+// caused every submission to fail with a check-constraint violation).
+object StandingOrderPurpose {
+    const val CONTRIBUTION = "contribution"
+    const val REPAYMENT    = "repayment"
+    val ALL = listOf(CONTRIBUTION, REPAYMENT)
+}
+
 @Serializable
 data class StandingOrder(
     val id: String,
@@ -51,7 +60,7 @@ private data class NewStandingOrderRequest(
     val amount: Double,
     val frequency: String,
     val day_of_month: Int?,
-    val purpose: String?,
+    val purpose: String,
     val start_date: String,
 )
 
@@ -94,7 +103,7 @@ class StandingOrdersViewModel @Inject constructor(
                         amount         = amount,
                         frequency      = frequency,
                         day_of_month   = dayOfMonth,
-                        purpose        = purpose.ifBlank { null },
+                        purpose        = purpose,
                         start_date     = todayIsoDate(),
                     ),
                 )

@@ -88,27 +88,29 @@ fun SavingsGoalsScreen(
     }
 
     if (showCreate) {
+        var hasSubmitted by remember { mutableStateOf(false) }
         CreateGoalDialog(
             isSubmitting = state.isSubmitting,
             error        = state.submitError,
             onDismiss    = { showCreate = false; viewModel.clearSubmitError() },
-            onSubmit     = { name, amount -> viewModel.createGoal(name, amount, null) },
+            onSubmit     = { name, amount -> hasSubmitted = true; viewModel.createGoal(name, amount, null) },
         )
         LaunchedEffect(state.isSubmitting, state.submitError) {
-            if (!state.isSubmitting && state.submitError == null && showCreate) showCreate = false
+            if (hasSubmitted && !state.isSubmitting && state.submitError == null) showCreate = false
         }
     }
 
     contributingTo?.let { goal ->
+        var hasSubmitted by remember(goal.id) { mutableStateOf(false) }
         ContributeDialog(
             goal = goal,
             isSubmitting = state.isSubmitting,
             error = state.submitError,
             onDismiss = { contributingTo = null; viewModel.clearSubmitError() },
-            onSubmit = { amount -> viewModel.addToGoal(goal, amount) },
+            onSubmit = { amount -> hasSubmitted = true; viewModel.addToGoal(goal, amount) },
         )
         LaunchedEffect(state.isSubmitting, state.submitError) {
-            if (!state.isSubmitting && state.submitError == null && contributingTo != null) contributingTo = null
+            if (hasSubmitted && !state.isSubmitting && state.submitError == null && contributingTo != null) contributingTo = null
         }
     }
 }

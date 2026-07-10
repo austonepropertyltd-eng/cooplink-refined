@@ -46,6 +46,7 @@ data class Dispute(
     val member_id: String,
     val cooperative_id: String? = null,
     val transaction_id: String? = null,
+    val subject: String? = null,
     val description: String,
     val status: String = DisputeStatus.OPEN,
     val category: String? = null,
@@ -60,6 +61,7 @@ private data class NewDisputeRequest(
     val member_id: String,
     val cooperative_id: String?,
     val transaction_id: String?,
+    val subject: String,
     val description: String,
     val category: String,
     val status: String = DisputeStatus.OPEN,
@@ -89,7 +91,7 @@ class DisputesViewModel @Inject constructor(
     fun refresh() = load()
     fun clearSubmitError() { _state.value = _state.value.copy(submitError = null) }
 
-    fun fileDispute(description: String, category: String, transactionId: String?) {
+    fun fileDispute(subject: String, description: String, category: String, transactionId: String?) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isSubmitting = true, submitError = null)
             try {
@@ -100,6 +102,7 @@ class DisputesViewModel @Inject constructor(
                         member_id      = member.id,
                         cooperative_id = member.cooperativeId,
                         transaction_id = transactionId,
+                        subject        = subject,
                         description    = description,
                         category       = category,
                     ),

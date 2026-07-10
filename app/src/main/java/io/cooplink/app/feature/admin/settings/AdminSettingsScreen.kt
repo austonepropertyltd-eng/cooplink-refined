@@ -40,6 +40,8 @@ fun AdminSettingsScreen(
     var dialog by remember { mutableStateOf(SettingsDialog.NONE) }
     var showSubscription by remember { mutableStateOf(false) }
     var showBankDetails by remember { mutableStateOf(false) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
+    val currentCurrency by viewModel.currencyProvider.currency.collectAsState()
 
     LaunchedEffect(state.snackbarMessage) {
         state.snackbarMessage?.let {
@@ -77,6 +79,7 @@ fun AdminSettingsScreen(
             })
             add(SettingsItem(Icons.Default.Palette, "Branding", true, onOpenBranding))
             add(SettingsItem(Icons.Default.Subscriptions, "Subscription", false) { showSubscription = true })
+            add(SettingsItem(Icons.Default.CurrencyExchange, "Currency (${currentCurrency.flag} ${currentCurrency.code})", false) { showCurrencyPicker = true })
             if (state.isSuperAdmin) {
                 add(SettingsItem(Icons.Default.AccountBalanceWallet, "Payment Bank Details", false) { showBankDetails = true })
             }
@@ -275,6 +278,58 @@ fun AdminSettingsScreen(
             )
         }
         SettingsDialog.NONE -> {}
+    }
+
+    if (showCurrencyPicker) {
+        CurrencyPickerSheet(
+            current = currentCurrency,
+            onSelect = { config -> viewModel.changeCurrency(config); showCurrencyPicker = false },
+            onDismiss = { showCurrencyPicker = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CurrencyPickerSheet(
+    current: io.cooplink.app.core.domain.CurrencyConfig,
+    onSelect: (io.cooplink.app.core.domain.CurrencyConfig) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
+        Column(Modifier.fillMaxWidth().padding(24.dp)) {
+            Text("Select Currency", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "This updates immediately across all member and admin apps for your cooperative",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            )
+            Spacer(Modifier.height(16.dp))
+            io.cooplink.app.core.domain.SupportedCurrencies.all.forEach { c ->
+                val isSelected = c.code == current.code
+                Card(
+                    onClick = { onSelect(c) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = if (isSelected) CardDefaults.cardColors(containerColor = CoopTeal.copy(alpha = 0.12f)) else CardDefaults.cardColors(),
+                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, CoopTeal) else null,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Row(
+                        Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(c.flag, style = MaterialTheme.typography.titleLarge)
+                        Column(Modifier.weight(1f)) {
+                            Text(c.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text("${c.code} • ${c.symbol}", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                        }
+                        if (isSelected) Icon(Icons.Default.CheckCircle, null, tint = CoopTeal, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 

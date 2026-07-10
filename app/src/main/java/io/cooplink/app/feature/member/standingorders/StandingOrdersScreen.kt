@@ -91,14 +91,15 @@ fun StandingOrdersScreen(
     }
 
     if (showCreate) {
+        var hasSubmitted by remember { mutableStateOf(false) }
         CreateOrderDialog(
             isSubmitting = state.isSubmitting,
             error        = state.submitError,
             onDismiss    = { showCreate = false; viewModel.clearSubmitError() },
-            onSubmit     = { amount, freq, day, purpose -> viewModel.createOrder(amount, freq, day, purpose) },
+            onSubmit     = { amount, freq, day, purpose -> hasSubmitted = true; viewModel.createOrder(amount, freq, day, purpose) },
         )
         LaunchedEffect(state.isSubmitting, state.submitError) {
-            if (!state.isSubmitting && state.submitError == null && showCreate) showCreate = false
+            if (hasSubmitted && !state.isSubmitting && state.submitError == null) showCreate = false
         }
     }
 }
@@ -155,7 +156,8 @@ private fun CreateOrderDialog(
     var frequency by remember { mutableStateOf(OrderFrequency.MONTHLY) }
     var freqMenuExpanded by remember { mutableStateOf(false) }
     var dayOfMonth by remember { mutableStateOf("1") }
-    var purpose by remember { mutableStateOf("") }
+    var purpose by remember { mutableStateOf(StandingOrderPurpose.CONTRIBUTION) }
+    var purposeMenuExpanded by remember { mutableStateOf(false) }
     val amountValue = amount.toDoubleOrNull()
 
     AlertDialog(
@@ -192,8 +194,20 @@ private fun CreateOrderDialog(
                     )
                 }
 
-                OutlinedTextField(value = purpose, onValueChange = { purpose = it }, label = { Text("Purpose (optional)") },
-                    placeholder = { Text("e.g. Monthly contribution") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                ExposedDropdownMenuBox(expanded = purposeMenuExpanded, onExpandedChange = { purposeMenuExpanded = it }) {
+                    OutlinedTextField(
+                        value = purpose.replaceFirstChar { it.uppercase() }, onValueChange = {}, readOnly = true,
+                        label = { Text("Purpose") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(purposeMenuExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = purposeMenuExpanded, onDismissRequest = { purposeMenuExpanded = false }) {
+                        StandingOrderPurpose.ALL.forEach { p ->
+                            DropdownMenuItem(text = { Text(p.replaceFirstChar { it.uppercase() }) },
+                                onClick = { purpose = p; purposeMenuExpanded = false })
+                        }
+                    }
+                }
             }
         },
         confirmButton = {

@@ -20,6 +20,7 @@ fun MemberDetails.toEntity() = MemberEntity(
     totalSavings  = totalSavings,
     createdAt     = createdAt,
     memberNumber  = memberNumber,
+    loginId       = loginId,
 )
 
 fun MemberEntity.toDomain() = MemberDetails(
@@ -34,6 +35,7 @@ fun MemberEntity.toDomain() = MemberDetails(
     totalSavings  = totalSavings,
     createdAt     = createdAt,
     memberNumber  = memberNumber,
+    loginId       = loginId,
 )
 
 fun Transaction.toEntity(fallbackMemberId: String) = TransactionEntity(

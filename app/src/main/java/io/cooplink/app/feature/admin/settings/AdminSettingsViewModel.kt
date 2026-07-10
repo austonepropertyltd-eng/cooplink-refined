@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
 import io.cooplink.app.core.data.CooperativeRepository
+import io.cooplink.app.core.data.CurrencyProvider
 import io.cooplink.app.core.data.SessionPreferences
 import io.cooplink.app.core.domain.Cooperative
 import io.cooplink.app.core.domain.UserRole
@@ -76,6 +77,7 @@ class AdminSettingsViewModel @Inject constructor(
     private val cooperativeRepository: CooperativeRepository,
     private val sessionPreferences: SessionPreferences,
     val inactivityManager: InactivityManager,
+    val currencyProvider: CurrencyProvider,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AdminSettingsUiState())
@@ -95,6 +97,19 @@ class AdminSettingsViewModel @Inject constructor(
 
     fun setRequireBiometric(enabled: Boolean) {
         viewModelScope.launch { sessionPreferences.setRequireBiometric(enabled) }
+    }
+
+    // Broadcasts via Supabase Realtime — every other admin/member device for
+    // this cooperative (and the web platform) picks the change up immediately.
+    fun changeCurrency(config: io.cooplink.app.core.domain.CurrencyConfig) {
+        val coopId = _state.value.cooperative?.id ?: return
+        viewModelScope.launch {
+            runCatching { currencyProvider.setCurrency(coopId, config) }
+                .onFailure {
+                    Log.e(TAG, "Failed to change currency", it)
+                    _state.value = _state.value.copy(snackbarMessage = "Could not update currency. Please try again.")
+                }
+        }
     }
 
     init { refresh() }

@@ -41,6 +41,7 @@ data class MemberEntity(
     val totalSavings: Double,
     val createdAt: String?,
     val memberNumber: String?,
+    val loginId: String? = null,
 )
 
 @Entity(tableName = "cached_cooperatives")
@@ -271,7 +272,7 @@ interface OfflineQueueDao {
         NotificationEntity::class, StandingOrderEntity::class,
         DisputeEntity::class, SavingsGoalEntity::class,
     ],
-    version  = 3,
+    version  = 4,
     exportSchema = false,
 )
 abstract class CoopLinkDatabase : RoomDatabase() {

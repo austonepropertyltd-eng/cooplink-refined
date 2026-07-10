@@ -84,15 +84,16 @@ fun DisputesScreen(
     }
 
     if (showFile) {
+        var hasSubmitted by remember { mutableStateOf(false) }
         FileDisputeDialog(
             recentTransactions = state.recentTransactions,
             isSubmitting = state.isSubmitting,
             error        = state.submitError,
             onDismiss    = { showFile = false; viewModel.clearSubmitError() },
-            onSubmit     = { desc, category, txId -> viewModel.fileDispute(desc, category, txId) },
+            onSubmit     = { subject, desc, category, txId -> hasSubmitted = true; viewModel.fileDispute(subject, desc, category, txId) },
         )
         LaunchedEffect(state.isSubmitting, state.submitError) {
-            if (!state.isSubmitting && state.submitError == null && showFile) showFile = false
+            if (hasSubmitted && !state.isSubmitting && state.submitError == null) showFile = false
         }
     }
 }
@@ -110,7 +111,8 @@ private fun DisputeCard(dispute: Dispute) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    dispute.category?.replaceFirstChar { it.uppercase() } ?: "Dispute",
+                    dispute.subject?.takeIf { it.isNotBlank() }
+                        ?: dispute.category?.replaceFirstChar { it.uppercase() } ?: "Dispute",
                     style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.SemiBold,
                 )
                 Surface(color = statusColor.copy(alpha = 0.15f), shape = MaterialTheme.shapes.small) {
@@ -144,8 +146,9 @@ private fun FileDisputeDialog(
     isSubmitting: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onSubmit: (description: String, category: String, transactionId: String?) -> Unit,
+    onSubmit: (subject: String, description: String, category: String, transactionId: String?) -> Unit,
 ) {
+    var subject by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(DisputeCategory.TRANSACTION) }
     var categoryMenuExpanded by remember { mutableStateOf(false) }
@@ -198,6 +201,13 @@ private fun FileDisputeDialog(
                 }
 
                 OutlinedTextField(
+                    value = subject, onValueChange = { subject = it },
+                    label = { Text("Subject") },
+                    placeholder = { Text("Short summary, e.g. Missing payment") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
                     value = description, onValueChange = { description = it },
                     label = { Text("What happened?") },
                     placeholder = { Text("Describe the issue in detail") },
@@ -207,8 +217,8 @@ private fun FileDisputeDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSubmit(description, category, selectedTransaction?.id) },
-                enabled = description.isNotBlank() && !isSubmitting,
+                onClick = { onSubmit(subject, description, category, selectedTransaction?.id) },
+                enabled = subject.isNotBlank() && description.isNotBlank() && !isSubmitting,
                 colors = ButtonDefaults.buttonColors(containerColor = CoopError),
             ) {
                 if (isSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Submit")

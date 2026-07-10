@@ -31,6 +31,8 @@ class SessionPreferences @Inject constructor(
     private val keyCoopName   = stringPreferencesKey("coop_name")
     private val keyCoopLogo   = stringPreferencesKey("coop_logo")
     private val keyCoopColor  = stringPreferencesKey("coop_color")
+    private val keyCurrency       = stringPreferencesKey("currency_code")
+    private val keyCurrencySymbol = stringPreferencesKey("currency_symbol")
 
     val savedIdentifierFlow: Flow<String?> = store.data.map { it[keyIdentifier] }
     val savedIsAdminFlow: Flow<Boolean>     = store.data.map { it[keyIsAdmin] ?: false }
@@ -93,5 +95,18 @@ class SessionPreferences @Inject constructor(
 
     suspend fun clearCachedRole() {
         store.edit { it.remove(keyCachedRole) }
+    }
+
+    // Lets the active currency survive a cold start / offline launch before
+    // the cooperative row loads — CurrencyProvider overwrites this the moment
+    // a live fetch succeeds.
+    val savedCurrencyFlow: Flow<String?>       = store.data.map { it[keyCurrency] }
+    val savedCurrencySymbolFlow: Flow<String?> = store.data.map { it[keyCurrencySymbol] }
+
+    suspend fun saveCurrency(code: String, symbol: String) {
+        store.edit {
+            it[keyCurrency]       = code
+            it[keyCurrencySymbol] = symbol
+        }
     }
 }

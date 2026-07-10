@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
+import io.cooplink.app.core.data.CurrencyProvider
+import io.cooplink.app.core.domain.BillingPeriod
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.payment.PaymentDeepLinkBus
 import io.cooplink.app.core.payment.PaymentManager
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
@@ -63,6 +66,28 @@ data class PricingPlan(
     val isPayable: Boolean get() = planKey != "starter" && planKey != "enterprise" && finalPrice > 0
 }
 
+// Matches calculate_subscription_price(p_plan_key, p_billing_period) exactly
+// (confirmed via direct RPC probing) — folds both the plan's own
+// discount_active/discount_percent AND the period discount into one figure,
+// which is why this is used for every period (including monthly) rather than
+// only for the 3/6/12-month options.
+@Serializable
+data class SubscriptionPricing(
+    @SerialName("plan_key")             val planKey: String,
+    @SerialName("plan_name")            val planName: String,
+    @SerialName("billing_period")       val billingPeriod: String,
+    @SerialName("billing_months")       val billingMonths: Int,
+    @SerialName("base_monthly_price")   val baseMonthlyPrice: Double,
+    @SerialName("discounted_monthly")   val discountedMonthly: Double,
+    @SerialName("plan_discount")        val planDiscount: Double,
+    @SerialName("period_discount")      val periodDiscount: Double,
+    @SerialName("total_discount")       val totalDiscount: Double,
+    @SerialName("total_price")          val totalPrice: Double,
+    @SerialName("amount_saved")         val amountSaved: Double,
+    @SerialName("price_per_month")      val pricePerMonth: Double,
+    @SerialName("expires_after_months") val expiresAfterMonths: Int,
+)
+
 @Serializable
 private data class CooperativeSubscriptionColumns(
     val plan_name: String?           = null,
@@ -86,6 +111,9 @@ private data class NewSubscriptionOrderRequest(
     val base_price: Double,
     val discount_percent: Double,
     val final_price: Double,
+    val billing_period: String,
+    val billing_months: Int,
+    val amount_saved: Double,
     val payment_method: String,
     val bank_transfer_reference: String? = null,
     val paystack_reference: String?      = null,
@@ -111,6 +139,9 @@ data class SubscriptionUiState(
     val membersUsed: Int            = 0,
     val trialEndsAt: String?        = null,
     val bankDetail: PaymentBankDetail? = null,
+    val selectedPeriod: BillingPeriod = BillingPeriod.MONTHLY,
+    val pricingByPlan: Map<String, SubscriptionPricing> = emptyMap(),
+    val isPricingLoading: Boolean    = false,
     val error: String?              = null,
     val payment: SubscriptionPaymentState = SubscriptionPaymentState.Idle,
 )
@@ -122,11 +153,13 @@ class SubscriptionViewModel @Inject constructor(
     private val paymentManager: PaymentManager,
     private val deepLinkBus: PaymentDeepLinkBus,
     private val inactivityManager: InactivityManager,
+    val currencyProvider: CurrencyProvider,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SubscriptionUiState())
     val state: StateFlow<SubscriptionUiState> = _state.asStateFlow()
 
+    private val json = Json { ignoreUnknownKeys = true }
     private var realtimeChannel: RealtimeChannel? = null
     private var cooperativeId: String? = null
     private var pendingPlan: PricingPlan? = null
@@ -212,11 +245,51 @@ class SubscriptionViewModel @Inject constructor(
                     }
                 }
                 subscribeToRealtimeDiscounts()
+                loadPricingForPeriod(_state.value.selectedPeriod)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load subscription info", e)
                 _state.update { it.copy(isLoading = false, error = "Could not load subscription plans. Pull down to retry.") }
             }
         }
+    }
+
+    fun selectPeriod(period: BillingPeriod) {
+        _state.update { it.copy(selectedPeriod = period) }
+        viewModelScope.launch { loadPricingForPeriod(period) }
+    }
+
+    private suspend fun loadPricingForPeriod(period: BillingPeriod) {
+        val payablePlans = _state.value.plans.filter { it.isPayable }
+        if (payablePlans.isEmpty()) return
+
+        _state.update { it.copy(isPricingLoading = true) }
+        val priced = coroutineScope {
+            payablePlans.map { plan ->
+                async {
+                    val pricing = runCatching {
+                        val resp = supabase.db.rpc(
+                            "calculate_subscription_price",
+                            buildJsonObject { put("p_plan_key", plan.planKey); put("p_billing_period", period.key) },
+                        )
+                        json.decodeFromString<SubscriptionPricing>(resp.data)
+                    }.getOrElse {
+                        Log.w(TAG, "calculate_subscription_price RPC failed for ${plan.planKey}/${period.key} — using client-side fallback", it)
+                        val discount = period.defaultDiscount.toDouble()
+                        val total = plan.basePrice * period.months * (1 - discount / 100)
+                        SubscriptionPricing(
+                            planKey = plan.planKey, planName = plan.planName,
+                            billingPeriod = period.key, billingMonths = period.months,
+                            baseMonthlyPrice = plan.basePrice, discountedMonthly = plan.basePrice * (1 - discount / 100),
+                            planDiscount = 0.0, periodDiscount = discount, totalDiscount = discount,
+                            totalPrice = total, amountSaved = (plan.basePrice * period.months) - total,
+                            pricePerMonth = total / period.months, expiresAfterMonths = period.months,
+                        )
+                    }
+                    plan.planKey to pricing
+                }
+            }.map { it.await() }.toMap()
+        }
+        _state.update { it.copy(pricingByPlan = priced, isPricingLoading = false) }
     }
 
     // Keeps discount badges in sync live — e.g. a flash sale toggled on from
@@ -247,6 +320,8 @@ class SubscriptionViewModel @Inject constructor(
     fun startPaystackPayment(plan: PricingPlan) {
         val coopId = cooperativeId ?: return
         pendingPlan = plan
+        val pricing = _state.value.pricingByPlan[plan.planKey]
+        val amount = pricing?.totalPrice ?: plan.finalPrice
         viewModelScope.launch {
             _state.update { it.copy(payment = SubscriptionPaymentState.Initializing) }
             val email = supabase.auth.currentSessionOrNull()?.user?.email
@@ -254,7 +329,7 @@ class SubscriptionViewModel @Inject constructor(
                 _state.update { it.copy(payment = SubscriptionPaymentState.Failed("Could not determine your account email")) }
                 return@launch
             }
-            paymentManager.initializeSubscriptionPayment(plan.finalPrice, email, coopId, plan.planKey, plan.planName)
+            paymentManager.initializeSubscriptionPayment(amount, email, coopId, plan.planKey, plan.planName)
                 .onSuccess { resp ->
                     _state.update { it.copy(payment = SubscriptionPaymentState.ReadyToOpen(resp.authorization_url)) }
                 }
@@ -287,6 +362,9 @@ class SubscriptionViewModel @Inject constructor(
     }
 
     private suspend fun applyPlanUpgrade(coopId: String, plan: PricingPlan, paystackReference: String) {
+        val period = _state.value.selectedPeriod
+        val pricing = _state.value.pricingByPlan[plan.planKey]
+
         runCatching {
             supabase.db["cooperatives"].update(
                 SubscriptionOrderPatch(
@@ -304,8 +382,11 @@ class SubscriptionViewModel @Inject constructor(
                     plan_key            = plan.planKey,
                     plan_name           = plan.planName,
                     base_price          = plan.basePrice,
-                    discount_percent    = plan.discountPercent,
-                    final_price         = plan.finalPrice,
+                    discount_percent    = pricing?.totalDiscount ?: plan.discountPercent,
+                    final_price         = pricing?.totalPrice ?: plan.finalPrice,
+                    billing_period      = period.key,
+                    billing_months      = period.months,
+                    amount_saved        = pricing?.amountSaved ?: 0.0,
                     payment_method      = "paystack",
                     paystack_reference  = paystackReference,
                     status              = "completed",
@@ -326,6 +407,8 @@ class SubscriptionViewModel @Inject constructor(
     // ── Bank transfer ─────────────────────────────────────────────────────────
     fun recordBankTransferIntent(plan: PricingPlan, reference: String) {
         val coopId = cooperativeId ?: return
+        val period = _state.value.selectedPeriod
+        val pricing = _state.value.pricingByPlan[plan.planKey]
         viewModelScope.launch {
             runCatching {
                 supabase.db["subscription_orders"].insert(
@@ -334,8 +417,11 @@ class SubscriptionViewModel @Inject constructor(
                         plan_key                = plan.planKey,
                         plan_name               = plan.planName,
                         base_price              = plan.basePrice,
-                        discount_percent        = plan.discountPercent,
-                        final_price             = plan.finalPrice,
+                        discount_percent        = pricing?.totalDiscount ?: plan.discountPercent,
+                        final_price             = pricing?.totalPrice ?: plan.finalPrice,
+                        billing_period          = period.key,
+                        billing_months          = period.months,
+                        amount_saved            = pricing?.amountSaved ?: 0.0,
                         payment_method          = "bank_transfer",
                         bank_transfer_reference = reference,
                         status                  = "pending",

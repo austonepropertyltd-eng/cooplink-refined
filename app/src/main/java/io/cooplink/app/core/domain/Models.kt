@@ -42,6 +42,10 @@ data class Member(
     // schema probing) — e.g. "MEM-747074". Nullable/defaulted since we've
     // never actually seen a populated value; falls back to the row id if null.
     @SerialName("member_number")  val memberNumber: String?  = null,
+    // Also a real column (confirmed via schema probing) — the same value
+    // used to sign in (see AuthRepository.loginMember's login_id param).
+    // Populated for accounts where member_number itself is blank.
+    @SerialName("login_id")       val loginId: String?       = null,
     // Real column (confirmed via schema probing) — raw string, mapped to
     // KycStatus via KycStatus.fromRaw().
     @SerialName("kyc_status")     val kycStatus: String?     = null,
@@ -77,6 +81,9 @@ data class MemberDetails(
     val createdAt: String? = null,
     // The real formatted ID column (members.member_number, e.g. "MEM-747074").
     val memberNumber: String? = null,
+    // Also real (members.login_id) — the same value used to sign in; a
+    // populated fallback for accounts where member_number is blank.
+    val loginId: String? = null,
     // Fallback only ever populated for the signed-in user's own record (from
     // their auth session's user_metadata) — kept in case member_number is
     // unpopulated for some accounts.
@@ -84,8 +91,14 @@ data class MemberDetails(
     val kycStatus: KycStatus = KycStatus.NOT_SUBMITTED,
 ) {
     /** What to actually show as "the member ID" — prefers the real formatted
-     * column, then the auth-metadata fallback, then the row's own UUID. */
-    val displayId: String get() = memberNumber ?: formattedMemberId ?: id
+     * column, then login_id, then the auth-metadata fallback, then the row's
+     * own UUID as a last resort (only reachable if none of the above are set
+     * for this member — a data gap, not something the UI can fabricate). */
+    val displayId: String get() =
+        memberNumber?.takeIf { it.isNotBlank() }
+            ?: loginId?.takeIf { it.isNotBlank() }
+            ?: formattedMemberId?.takeIf { it.isNotBlank() }
+            ?: id
 }
 
 // ── Loan ──────────────────────────────────────────────────────────────────────

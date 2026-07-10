@@ -64,6 +64,7 @@ class MemberRepository @Inject constructor(
             totalSavings     = totalSavings,
             createdAt        = member.createdAt,
             memberNumber     = member.memberNumber,
+            loginId          = member.loginId,
             formattedMemberId = formattedMemberId,
             kycStatus        = io.cooplink.app.core.domain.KycStatus.fromRaw(member.kycStatus),
         )
@@ -139,6 +140,7 @@ class MemberRepository @Inject constructor(
                 email         = null,
                 createdAt     = member.createdAt,
                 memberNumber  = member.memberNumber,
+                loginId       = member.loginId,
                 kycStatus     = io.cooplink.app.core.domain.KycStatus.fromRaw(member.kycStatus),
             )
         }

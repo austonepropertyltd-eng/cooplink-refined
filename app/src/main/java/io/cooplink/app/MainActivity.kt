@@ -30,7 +30,9 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.compose.runtime.CompositionLocalProvider
 import io.cooplink.app.auth.AuthRepository
+import io.cooplink.app.core.data.CurrencyProvider
 import io.cooplink.app.core.data.OnboardingPreferences
 import io.cooplink.app.core.data.SessionPreferences
 import io.cooplink.app.core.domain.AuthUser
@@ -38,6 +40,7 @@ import io.cooplink.app.core.domain.UserRole
 import io.cooplink.app.core.payment.PaymentDeepLinkBus
 import io.cooplink.app.core.security.BiometricHelper
 import io.cooplink.app.core.security.InactivityManager
+import io.cooplink.app.core.ui.LocalCurrency
 import io.cooplink.app.navigation.CoopLinkNavHost
 import io.cooplink.app.navigation.Routes
 import io.cooplink.app.ui.theme.CoopGold
@@ -60,6 +63,7 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var paymentDeepLinkBus: PaymentDeepLinkBus
     @Inject lateinit var biometricHelper: BiometricHelper
     @Inject lateinit var inactivityManager: InactivityManager
+    @Inject lateinit var currencyProvider: CurrencyProvider
 
     private var isLocked by mutableStateOf(false)
     private var startDestination by mutableStateOf<String?>(null)
@@ -96,7 +100,10 @@ class MainActivity : FragmentActivity() {
                     ?.let { runCatching { UserRole.valueOf(it) }.getOrNull() }
 
                 if (cachedRole != null) {
-                    launch { runCatching { authRepository.fetchCurrentUser() } }
+                    launch {
+                        val user = runCatching { authRepository.fetchCurrentUser() }.getOrNull()
+                        user?.cooperativeId?.let { loadAndSubscribeCurrency(it) }
+                    }
                     if (cachedRole.isAdmin) Routes.ADMIN_SHELL else Routes.MEMBER_SHELL
                 } else {
                     var user: AuthUser? = null
@@ -105,6 +112,7 @@ class MainActivity : FragmentActivity() {
                         if (user != null || attempt == COLD_START_ROLE_MAX_ATTEMPTS) break
                         delay(COLD_START_ROLE_RETRY_DELAY_MS)
                     }
+                    user?.cooperativeId?.let { loadAndSubscribeCurrency(it) }
                     when {
                         user == null        -> Routes.LOGIN
                         user.role.isAdmin   -> Routes.ADMIN_SHELL
@@ -119,17 +127,24 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-            CoopLinkAdminTheme {
-                Surface(Modifier.fillMaxSize()) {
-                    val dest = startDestination
-                    if (isLocked) {
-                        LockScreen(onUnlock = ::promptBiometric)
-                    } else if (dest != null) {
-                        CoopLinkNavHost(startDestination = dest)
+            CompositionLocalProvider(LocalCurrency provides currencyProvider) {
+                CoopLinkAdminTheme {
+                    Surface(Modifier.fillMaxSize()) {
+                        val dest = startDestination
+                        if (isLocked) {
+                            LockScreen(onUnlock = ::promptBiometric)
+                        } else if (dest != null) {
+                            CoopLinkNavHost(startDestination = dest)
+                        }
                     }
                 }
             }
         }
+    }
+
+    private suspend fun loadAndSubscribeCurrency(cooperativeId: String) {
+        currencyProvider.loadFromCooperative(cooperativeId)
+        currencyProvider.subscribeToChanges(cooperativeId, lifecycleScope)
     }
 
     override fun onResume() {

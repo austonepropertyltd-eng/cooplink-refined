@@ -3,7 +3,10 @@ package io.cooplink.app.feature.admin.subscription
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,7 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.cooplink.app.core.data.CurrencyProvider
+import io.cooplink.app.core.domain.BillingPeriod
 import io.cooplink.app.core.security.InactivityManager
 import io.cooplink.app.ui.theme.*
 
@@ -105,11 +111,16 @@ fun SubscriptionScreen(
 
             CurrentPlanCard(state)
 
+            BillingPeriodSelector(selected = state.selectedPeriod, onSelect = viewModel::selectPeriod)
+
             Text("Available Plans", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
             state.plans.forEach { plan ->
                 PlanCard(
                     plan = plan,
+                    pricing = state.pricingByPlan[plan.planKey],
+                    period = state.selectedPeriod,
+                    currency = viewModel.currencyProvider,
                     isProcessing = state.payment !is SubscriptionPaymentState.Idle && state.payment !is SubscriptionPaymentState.Failed,
                     onPayWithPaystack = { selectedPlan = plan; viewModel.startPaystackPayment(plan) },
                     onPayByBankTransfer = { selectedPlan = plan; showBankTransferSheet = true },
@@ -160,6 +171,9 @@ fun SubscriptionScreen(
         if (showBankTransferSheet) {
             BankTransferSheet(
                 plan = plan,
+                pricing = state.pricingByPlan[plan.planKey],
+                period = state.selectedPeriod,
+                currency = viewModel.currencyProvider,
                 bankDetail = state.bankDetail,
                 cooperativeId = state.cooperativeId,
                 onDismiss = { showBankTransferSheet = false },
@@ -228,8 +242,80 @@ private fun CurrentPlanCard(state: SubscriptionUiState) {
 }
 
 @Composable
+private fun BillingPeriodSelector(selected: BillingPeriod, onSelect: (BillingPeriod) -> Unit) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Choose Billing Period", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text("Longer periods save you more money", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(.5f))
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), MaterialTheme.shapes.large)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            BillingPeriod.entries.forEach { period ->
+                val isSelected = period == selected
+                Column(
+                    modifier = Modifier.weight(1f)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(if (isSelected) CoopNavy else Color.Transparent)
+                        .clickable { onSelect(period) }
+                        .padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        period.label, style = MaterialTheme.typography.labelMedium,
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(.6f),
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (period.badge.isNotEmpty()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            period.badge,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = if (isSelected) CoopGold else CoopGold.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(selected != BillingPeriod.MONTHLY) {
+            Card(
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = CoopGreen.copy(alpha = 0.1f)),
+                border = BorderStroke(1.dp, CoopGreen.copy(alpha = 0.3f)),
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Savings, null, tint = CoopGreen, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when (selected) {
+                            BillingPeriod.QUARTERLY -> "Save 10% with quarterly billing — pay once every 3 months"
+                            BillingPeriod.BIANNUAL  -> "Save 20% with 6-month billing — only 2 payments per year"
+                            BillingPeriod.ANNUAL    -> "Save 35% with annual billing — best value, pay once a year 🔥"
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = CoopGreen,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlanCard(
     plan: PricingPlan,
+    pricing: SubscriptionPricing?,
+    period: BillingPeriod,
+    currency: CurrencyProvider,
     isProcessing: Boolean,
     onPayWithPaystack: () -> Unit,
     onPayByBankTransfer: () -> Unit,
@@ -250,7 +336,7 @@ private fun PlanCard(
             }
             Text(plan.planName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = planColor)
             Spacer(Modifier.height(4.dp))
-            PriceDisplay(plan)
+            PriceDisplay(plan, pricing, period, currency)
             plan.maxMembers?.let {
                 Text(
                     if (it >= 999_999) "unlimited members" else "up to $it members",
@@ -268,6 +354,7 @@ private fun PlanCard(
             }
 
             if (plan.isPayable) {
+                val totalPrice = pricing?.totalPrice ?: (plan.finalPrice * period.months)
                 Spacer(Modifier.height(14.dp))
                 Button(
                     onClick = onPayWithPaystack,
@@ -280,7 +367,7 @@ private fun PlanCard(
                     } else {
                         Icon(Icons.Default.CreditCard, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Pay with Paystack", fontWeight = FontWeight.SemiBold)
+                        Text("Pay ${currency.format(totalPrice)} via Paystack", fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -300,32 +387,51 @@ private fun PlanCard(
 }
 
 @Composable
-private fun PriceDisplay(plan: PricingPlan) {
+private fun PriceDisplay(plan: PricingPlan, pricing: SubscriptionPricing?, period: BillingPeriod, currency: CurrencyProvider) {
+    if (!plan.isPayable) {
+        Text(plan.displayPrice, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        return
+    }
+
+    val totalPrice = pricing?.totalPrice ?: (plan.finalPrice * period.months)
+    val totalDiscount = pricing?.totalDiscount ?: 0.0
+    val amountSaved = pricing?.amountSaved ?: 0.0
+    val pricePerMonth = pricing?.pricePerMonth ?: plan.finalPrice
+
     Column {
-        if (plan.hasDiscount) {
+        if (totalDiscount > 0) {
             Text(
-                text = "₦${"%,.0f".format(plan.basePrice)}",
+                text = currency.format(plan.basePrice * period.months),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(.4f),
                 textDecoration = TextDecoration.LineThrough,
             )
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(plan.displayPrice, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            if (plan.isPayable) {
-                Spacer(Modifier.width(4.dp))
-                Text("/month", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-            }
+            Text(currency.format(totalPrice), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(4.dp))
+            Text("total", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
         }
-        if (plan.hasDiscount) {
-            Surface(shape = MaterialTheme.shapes.small, color = CoopError, modifier = Modifier.padding(top = 4.dp)) {
-                Text(
-                    "-${plan.discountPercent.toInt()}% ${plan.discountLabel ?: "OFF"}",
-                    Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White, fontWeight = FontWeight.Bold,
-                )
+        if (period.months > 1) {
+            Text("${currency.format(pricePerMonth)}/mo", style = MaterialTheme.typography.labelSmall, color = CoopGold)
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = MaterialTheme.shapes.extraSmall, color = CoopTeal.copy(alpha = 0.15f)) {
+                Text(period.label, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall, color = CoopTeal)
+            }
+            if (amountSaved > 0) {
+                Surface(shape = MaterialTheme.shapes.extraSmall, color = CoopGreen.copy(alpha = 0.15f)) {
+                    Text("Save ${currency.format(amountSaved)}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall, color = CoopGreen, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (totalDiscount > 0) {
+                Surface(shape = MaterialTheme.shapes.extraSmall, color = CoopError.copy(alpha = 0.15f)) {
+                    Text("-${totalDiscount.toInt()}%", Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall, color = CoopError, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -335,6 +441,9 @@ private fun PriceDisplay(plan: PricingPlan) {
 @Composable
 private fun BankTransferSheet(
     plan: PricingPlan,
+    pricing: SubscriptionPricing?,
+    period: BillingPeriod,
+    currency: CurrencyProvider,
     bankDetail: io.cooplink.app.feature.admin.paymentbankdetails.PaymentBankDetail?,
     cooperativeId: String?,
     onDismiss: () -> Unit,
@@ -342,10 +451,11 @@ private fun BankTransferSheet(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val reference = remember(plan) { "COOP-${(cooperativeId ?: "SUB").take(8)}-${plan.planKey.uppercase()}" }
+    val reference = remember(plan, period) { "COOP-${(cooperativeId ?: "SUB").take(8)}-${plan.planKey.uppercase()}-${period.key.uppercase()}" }
     val bankName = bankDetail?.bank_name ?: FALLBACK_BANK_NAME
     val accountName = bankDetail?.account_name ?: FALLBACK_ACCOUNT_NAME
     val accountNumber = bankDetail?.account_number ?: FALLBACK_ACCOUNT_NUMBER
+    val totalPrice = pricing?.totalPrice ?: (plan.finalPrice * period.months)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
         Column(Modifier.padding(24.dp)) {
@@ -356,9 +466,9 @@ private fun BankTransferSheet(
                 border = BorderStroke(1.dp, CoopGold.copy(alpha = 0.4f))) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Amount to Transfer", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(.6f))
-                    Text("₦${"%,.2f".format(plan.finalPrice)}", style = MaterialTheme.typography.headlineLarge,
+                    Text(currency.format(totalPrice), style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold, color = CoopGold)
-                    Text("${plan.planName} Plan — 1 Month", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.5f))
+                    Text("${plan.planName} Plan — ${period.label}", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.5f))
                 }
             }
 
@@ -424,8 +534,8 @@ private fun BankTransferSheet(
             TextButton(
                 onClick = {
                     val msg = Uri.encode(
-                        "Hello VFG Technology, I have made a bank transfer of ₦${"%,.2f".format(plan.finalPrice)} " +
-                            "for CoopLink ${plan.planName} plan.\nReference: $reference\nPlease activate my subscription.",
+                        "Hello VFG Technology, I have made a bank transfer of ${currency.format(totalPrice)} " +
+                            "for CoopLink ${plan.planName} plan (${period.label}).\nReference: $reference\nPlease activate my subscription.",
                     )
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$UPGRADE_WHATSAPP_NUMBER?text=$msg")))
                 },
