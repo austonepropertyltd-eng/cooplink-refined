@@ -3,6 +3,8 @@ package io.cooplink.app.core.data
 import android.util.Log
 import io.cooplink.app.core.domain.CurrencyConfig
 import io.cooplink.app.core.domain.SupportedCurrencies
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.domain.formatShort
 import io.cooplink.app.core.network.SupabaseClient
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
@@ -108,23 +110,9 @@ class CurrencyProvider @Inject constructor(
         Log.d(TAG, "Switched to: ${config.flag} ${config.code}")
     }
 
-    fun format(amount: Double): String {
-        val config = _currency.value
-        val fmt = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
-        fmt.minimumFractionDigits = config.decimalPlaces
-        fmt.maximumFractionDigits = config.decimalPlaces
-        return "${config.symbol}${fmt.format(amount)}"
-    }
+    fun format(amount: Double): String = _currency.value.format(amount)
 
-    fun formatShort(amount: Double): String {
-        val symbol = _currency.value.symbol
-        return when {
-            amount >= 1_000_000_000 -> "$symbol${"%.1f".format(amount / 1_000_000_000)}B"
-            amount >= 1_000_000     -> "$symbol${"%.1f".format(amount / 1_000_000)}M"
-            amount >= 1_000         -> "$symbol${"%.1f".format(amount / 1_000)}K"
-            else                    -> format(amount)
-        }
-    }
+    fun formatShort(amount: Double): String = _currency.value.formatShort(amount)
 
     fun currentSymbol(): String = _currency.value.symbol
     fun currentCode(): String = _currency.value.code

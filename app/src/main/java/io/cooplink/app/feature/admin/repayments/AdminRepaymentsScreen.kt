@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.Loan
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopTeal
@@ -26,6 +27,7 @@ import io.cooplink.app.ui.theme.CoopTeal
 @Composable
 fun AdminRepaymentsScreen(viewModel: AdminRepaymentsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var showRecordDialog by remember { mutableStateOf(false) }
 
@@ -76,12 +78,12 @@ fun AdminRepaymentsScreen(viewModel: AdminRepaymentsViewModel = hiltViewModel())
                                 Text(row.transaction.createdAt.take(10), style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(.5f))
                                 row.loanBalance?.let {
-                                    Text("Balance remaining: ${it.toNaira()}", style = MaterialTheme.typography.bodySmall,
+                                    Text("Balance remaining: ${currency.format(it)}", style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface.copy(.5f))
                                 }
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(row.transaction.amount.toNaira(), fontWeight = FontWeight.SemiBold, color = CoopGold)
+                                Text(currency.format(row.transaction.amount), fontWeight = FontWeight.SemiBold, color = CoopGold)
                                 Spacer(Modifier.height(4.dp))
                                 Surface(color = CoopGold.copy(alpha = 0.15f), shape = MaterialTheme.shapes.small) {
                                     Text("Completed", color = CoopGold, style = MaterialTheme.typography.labelSmall,
@@ -116,6 +118,7 @@ private fun RecordRepaymentDialog(
     onSubmit: (memberId: String, loan: Loan, amount: Double, date: String, method: String) -> Unit,
     onSaved: () -> Unit,
 ) {
+    val currency = currentCurrency()
     var selectedMemberId by remember { mutableStateOf(state.members.firstOrNull()?.id) }
     var memberMenuExpanded by remember { mutableStateOf(false) }
     var selectedLoan by remember { mutableStateOf<Loan?>(null) }
@@ -159,14 +162,14 @@ private fun RecordRepaymentDialog(
                 } else {
                     ExposedDropdownMenuBox(expanded = loanMenuExpanded, onExpandedChange = { loanMenuExpanded = it }) {
                         OutlinedTextField(
-                            value = selectedLoan?.let { "${it.outstandingBalance.toNaira()} outstanding" } ?: "Select a loan",
+                            value = selectedLoan?.let { "${currency.format(it.outstandingBalance)} outstanding" } ?: "Select a loan",
                             onValueChange = {}, readOnly = true, label = { Text("Loan") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = loanMenuExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor(),
                         )
                         ExposedDropdownMenu(expanded = loanMenuExpanded, onDismissRequest = { loanMenuExpanded = false }) {
                             memberLoans.forEach { loan ->
-                                DropdownMenuItem(text = { Text("${loan.outstandingBalance.toNaira()} · ${loan.status}") },
+                                DropdownMenuItem(text = { Text("${currency.format(loan.outstandingBalance)} · ${loan.status}") },
                                     onClick = { selectedLoan = loan; loanMenuExpanded = false })
                             }
                         }

@@ -28,7 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopNavy
@@ -41,6 +42,7 @@ import java.util.Locale
 @Composable
 fun AdminReportsScreen(viewModel: AdminReportsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     val shareLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.inactivityManager.resumeTimer()
@@ -66,7 +68,7 @@ fun AdminReportsScreen(viewModel: AdminReportsViewModel = hiltViewModel()) {
                             appendLine("---")
                             appendLine("Total Members: ${state.totalMembers}")
                             appendLine("Active Loans: ${state.activeLoans}")
-                            appendLine("Total Disbursed: ${state.totalDisbursed.toNaira()}")
+                            appendLine("Total Disbursed: ${currency.format(state.totalDisbursed)}")
                         }
                         val intent = Intent.createChooser(
                             Intent(Intent.ACTION_SEND).apply {
@@ -160,7 +162,7 @@ fun AdminReportsScreen(viewModel: AdminReportsViewModel = hiltViewModel()) {
                             headlineContent = { Text(loan.memberName) },
                             supportingContent = { Text("${loan.memberId} · ${loan.daysOverdue} days overdue") },
                             trailingContent = {
-                                Text(loan.outstandingBalance.toNaira(), fontWeight = FontWeight.Bold, color = agingBucketColor(loan.agingBucket))
+                                Text(currency.format(loan.outstandingBalance), fontWeight = FontWeight.Bold, color = agingBucketColor(loan.agingBucket))
                             },
                         )
                     }

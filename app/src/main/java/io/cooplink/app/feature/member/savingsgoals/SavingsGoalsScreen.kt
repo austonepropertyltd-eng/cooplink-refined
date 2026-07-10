@@ -18,7 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.*
 
 @Composable
@@ -117,6 +118,7 @@ fun SavingsGoalsScreen(
 
 @Composable
 private fun SavingsGoalCard(goal: SavingsGoal, onContribute: () -> Unit) {
+    val currency = currentCurrency()
     val progress = if (goal.target_amount > 0) (goal.current_amount / goal.target_amount).toFloat().coerceIn(0f, 1f) else 0f
     val isCompleted = goal.status == SavingsGoalStatus.COMPLETED
 
@@ -134,8 +136,8 @@ private fun SavingsGoalCard(goal: SavingsGoal, onContribute: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(goal.current_amount.toNaira(), style = MaterialTheme.typography.bodyMedium, color = MemberGold, fontWeight = FontWeight.SemiBold)
-                Text("of ${goal.target_amount.toNaira()}", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.5f))
+                Text(currency.format(goal.current_amount), style = MaterialTheme.typography.bodyMedium, color = MemberGold, fontWeight = FontWeight.SemiBold)
+                Text("of ${currency.format(goal.target_amount)}", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.5f))
             }
             Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(

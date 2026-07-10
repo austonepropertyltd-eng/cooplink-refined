@@ -19,8 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.member.overview.TransactionRow
-import io.cooplink.app.feature.member.overview.toNaira
 import io.cooplink.app.ui.theme.*
 
 private val FREQUENCIES = listOf("Weekly", "Monthly", "Quarterly")
@@ -29,6 +30,7 @@ private val DISPUTE_REASONS = listOf("Wrong amount", "Unauthorized", "Not receiv
 @Composable
 fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var showNewOrderDialog by remember { mutableStateOf(false) }
     var showRaiseDisputeDialog by remember { mutableStateOf(false) }
@@ -88,7 +90,7 @@ fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
                                         Text("${order.frequency ?: "—"} · from ${order.start_date ?: "—"}",
                                             color = Color.White.copy(.5f), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    Text(order.amount.toNaira(), color = MemberGold, fontWeight = FontWeight.SemiBold)
+                                    Text(currency.format(order.amount), color = MemberGold, fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }

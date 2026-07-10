@@ -23,7 +23,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.*
 
 private data class Kpi(
@@ -42,6 +43,7 @@ fun AdminDashboardScreen(
     viewModel: AdminDashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     var showHealthDetail by remember { mutableStateOf(false) }
 
     val healthValue = state.healthLabel?.let { "%.0f".format(state.healthScorePct) + " · $it" }
@@ -50,7 +52,7 @@ fun AdminDashboardScreen(
     val kpis = listOf(
         Kpi("Total Members",    "${state.totalMembers}",                 Icons.Default.Group,          CoopTeal),
         Kpi("Active Members",   "${state.activeMembers}",                Icons.Default.CreditScore,    CoopGold),
-        Kpi("Total Disbursed",  state.totalDisbursed.toNaira(),          Icons.Default.AccountBalance, CoopGreen),
+        Kpi("Total Disbursed",  currency.format(state.totalDisbursed),   Icons.Default.AccountBalance, CoopGreen),
         Kpi("Repayment Rate",   "%.0f%%".format(state.repaymentRatePct), Icons.Default.Savings,        Color(0xFF9B59B6)),
         Kpi("Default Rate",     "%.1f%%".format(state.defaultRatePct),   Icons.Default.Warning,        CoopError),
         Kpi("Health Score",     healthValue,                             Icons.Default.Favorite,       CoopTeal),
@@ -60,11 +62,11 @@ fun AdminDashboardScreen(
     val snapshotKpis = listOf(
         Kpi("Total Members",      "${analytics.totalMembers}",              Icons.Default.Group,               CoopTeal),
         Kpi("Active Loans",       "${analytics.activeLoans}",               Icons.Default.CreditScore,         CoopGold),
-        Kpi("Total Disbursed",    analytics.totalDisbursed.toNaira(),       Icons.Default.AccountBalance,       CoopGreen),
-        Kpi("Outstanding",        analytics.outstandingBalance.toNaira(),   Icons.Default.CreditCard,           Color(0xFFE67E22)),
-        Kpi("Total Repaid",       analytics.totalRepaid.toNaira(),          Icons.Default.CheckCircle,          CoopGreen),
-        Kpi("Monthly Collections", analytics.monthlyCollections.toNaira(),  Icons.Default.Savings,              CoopTeal),
-        Kpi("Total Savings",      analytics.totalSavings.toNaira(),         Icons.Default.AccountBalanceWallet, Color(0xFF9B59B6)),
+        Kpi("Total Disbursed",    currency.format(analytics.totalDisbursed),     Icons.Default.AccountBalance,       CoopGreen),
+        Kpi("Outstanding",        currency.format(analytics.outstandingBalance), Icons.Default.CreditCard,           Color(0xFFE67E22)),
+        Kpi("Total Repaid",       currency.format(analytics.totalRepaid),        Icons.Default.CheckCircle,          CoopGreen),
+        Kpi("Monthly Collections", currency.format(analytics.monthlyCollections), Icons.Default.Savings,             CoopTeal),
+        Kpi("Total Savings",      currency.format(analytics.totalSavings),       Icons.Default.AccountBalanceWallet, Color(0xFF9B59B6)),
         Kpi("Default Rate",      "%.1f%%".format(analytics.defaultRate),    Icons.Default.Warning,
             if (analytics.defaultRate > 5) CoopError else CoopGreen),
         Kpi("Pending KYC",       "${analytics.pendingKyc}",                 Icons.Default.VerifiedUser,

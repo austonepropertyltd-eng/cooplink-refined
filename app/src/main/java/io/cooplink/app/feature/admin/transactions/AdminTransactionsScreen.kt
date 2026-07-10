@@ -15,7 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopSuccess
@@ -24,6 +25,7 @@ import io.cooplink.app.ui.theme.CoopTeal
 @Composable
 fun AdminTransactionsScreen(viewModel: AdminTransactionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     var typeMenuExpanded by remember { mutableStateOf(false) }
     var memberMenuExpanded by remember { mutableStateOf(false) }
     var dateMenuExpanded by remember { mutableStateOf(false) }
@@ -37,13 +39,13 @@ fun AdminTransactionsScreen(viewModel: AdminTransactionsViewModel = hiltViewMode
                     Card(Modifier.weight(1f), shape = MaterialTheme.shapes.large) {
                         Column(Modifier.padding(14.dp)) {
                             Text("Total In", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-                            Text(state.totalIn.toNaira(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CoopSuccess)
+                            Text(currency.format(state.totalIn), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CoopSuccess)
                         }
                     }
                     Card(Modifier.weight(1f), shape = MaterialTheme.shapes.large) {
                         Column(Modifier.padding(14.dp)) {
                             Text("Total Out", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-                            Text(state.totalOut.toNaira(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CoopError)
+                            Text(currency.format(state.totalOut), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CoopError)
                         }
                     }
                 }
@@ -143,10 +145,10 @@ fun AdminTransactionsScreen(viewModel: AdminTransactionsViewModel = hiltViewMode
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    "${if (row.isCredit) "+" else "-"}${row.transaction.amount.toNaira()}",
+                                    "${if (row.isCredit) "+" else "-"}${currency.format(row.transaction.amount)}",
                                     fontWeight = FontWeight.SemiBold, color = if (row.isCredit) CoopSuccess else CoopError,
                                 )
-                                Text("Bal: ${row.runningBalance.toNaira()}", style = MaterialTheme.typography.labelSmall,
+                                Text("Bal: ${currency.format(row.runningBalance)}", style = MaterialTheme.typography.labelSmall,
                                     color = CoopTeal)
                             }
                         }

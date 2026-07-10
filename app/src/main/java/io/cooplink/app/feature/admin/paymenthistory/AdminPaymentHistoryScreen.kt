@@ -27,7 +27,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopGreen
@@ -36,6 +37,7 @@ import io.cooplink.app.ui.theme.CoopTeal
 @Composable
 fun AdminPaymentHistoryScreen(viewModel: AdminPaymentHistoryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var selectedPayment by remember { mutableStateOf<PaymentRow?>(null) }
     val shareLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -70,9 +72,9 @@ fun AdminPaymentHistoryScreen(viewModel: AdminPaymentHistoryViewModel = hiltView
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SummaryCard(Modifier.weight(1f), "Total In", state.totalIn.toNaira(), CoopGreen)
-                    SummaryCard(Modifier.weight(1f), "Total Out", state.totalOut.toNaira(), CoopError)
-                    SummaryCard(Modifier.weight(1f), "Net", (state.totalIn - state.totalOut).toNaira(), CoopGold)
+                    SummaryCard(Modifier.weight(1f), "Total In", currency.format(state.totalIn), CoopGreen)
+                    SummaryCard(Modifier.weight(1f), "Total Out", currency.format(state.totalOut), CoopError)
+                    SummaryCard(Modifier.weight(1f), "Net", currency.format(state.totalIn - state.totalOut), CoopGold)
                 }
             }
 
@@ -142,6 +144,7 @@ private fun SummaryCard(modifier: Modifier, label: String, value: String, color:
 
 @Composable
 private fun PaymentRowCard(row: PaymentRow, onClick: () -> Unit) {
+    val currency = currentCurrency()
     val isCredit = row.transaction.type.lowercase() in setOf("contribution", "deposit", "wallet_funding", "repayment")
     val color = if (isCredit) CoopGreen else CoopError
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
@@ -156,7 +159,7 @@ private fun PaymentRowCard(row: PaymentRow, onClick: () -> Unit) {
             headlineContent = { Text(row.memberName) },
             supportingContent = { Text("${row.transaction.type.replaceFirstChar { it.uppercase() }} · ${row.transaction.createdAt.take(10)}") },
             trailingContent = {
-                Text("${if (isCredit) "+" else "-"}${row.transaction.amount.toNaira()}", fontWeight = FontWeight.Bold, color = color)
+                Text("${if (isCredit) "+" else "-"}${currency.format(row.transaction.amount)}", fontWeight = FontWeight.Bold, color = color)
             },
         )
     }
@@ -165,6 +168,7 @@ private fun PaymentRowCard(row: PaymentRow, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaymentDetailSheet(row: PaymentRow, onDismiss: () -> Unit) {
+    val currency = currentCurrency()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
@@ -174,7 +178,7 @@ private fun PaymentDetailSheet(row: PaymentRow, onDismiss: () -> Unit) {
             DetailRow("Member", row.memberName)
             DetailRow("Member ID", row.memberDisplayId)
             DetailRow("Type", row.transaction.type.replaceFirstChar { it.uppercase() })
-            DetailRow("Amount", row.transaction.amount.toNaira())
+            DetailRow("Amount", currency.format(row.transaction.amount))
             DetailRow("Date", row.transaction.createdAt.take(10))
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Reference", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))

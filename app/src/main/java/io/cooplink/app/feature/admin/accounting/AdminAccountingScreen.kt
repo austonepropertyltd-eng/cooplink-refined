@@ -14,7 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGreen
 import io.cooplink.app.ui.theme.CoopTeal
@@ -76,6 +77,7 @@ fun AdminAccountingScreen(viewModel: AdminAccountingViewModel = hiltViewModel())
 
 @Composable
 private fun LedgerTab(ledger: List<LedgerEntry>) {
+    val currency = currentCurrency()
     if (ledger.isEmpty()) {
         Text("No transactions recorded yet", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f), modifier = Modifier.padding(24.dp))
         return
@@ -95,9 +97,9 @@ private fun LedgerTab(ledger: List<LedgerEntry>) {
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(entry.date, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 Text(entry.description, Modifier.weight(2f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                Text(if (entry.debit > 0) entry.debit.toNaira() else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = CoopError)
-                Text(if (entry.credit > 0) entry.credit.toNaira() else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = CoopGreen)
-                Text(entry.balance.toNaira(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                Text(if (entry.debit > 0) currency.format(entry.debit) else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = CoopError)
+                Text(if (entry.credit > 0) currency.format(entry.credit) else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = CoopGreen)
+                Text(currency.format(entry.balance), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
             }
         }
         item { Spacer(Modifier.height(80.dp)) }
@@ -106,6 +108,7 @@ private fun LedgerTab(ledger: List<LedgerEntry>) {
 
 @Composable
 private fun TrialBalanceTab(rows: List<TrialBalanceRow>) {
+    val currency = currentCurrency()
     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -118,8 +121,8 @@ private fun TrialBalanceTab(rows: List<TrialBalanceRow>) {
         items(rows) { row ->
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                 Text(row.account, Modifier.weight(2f), style = MaterialTheme.typography.bodyMedium)
-                Text(if (row.debit > 0) row.debit.toNaira() else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                Text(if (row.credit > 0) row.credit.toNaira() else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text(if (row.debit > 0) currency.format(row.debit) else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text(if (row.credit > 0) currency.format(row.credit) else "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             }
             HorizontalDivider()
         }
@@ -128,8 +131,8 @@ private fun TrialBalanceTab(rows: List<TrialBalanceRow>) {
             val totalCredit = rows.sumOf { it.credit }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                 Text("Total", Modifier.weight(2f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(totalDebit.toNaira(), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(totalCredit.toNaira(), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(currency.format(totalDebit), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(currency.format(totalCredit), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -137,6 +140,7 @@ private fun TrialBalanceTab(rows: List<TrialBalanceRow>) {
 
 @Composable
 private fun ProfitLossTab(state: AdminAccountingUiState) {
+    val currency = currentCurrency()
     Column {
         Text("Income", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CoopGreen)
         Spacer(Modifier.height(8.dp))
@@ -152,7 +156,7 @@ private fun ProfitLossTab(state: AdminAccountingUiState) {
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Net Surplus / Deficit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(state.netSurplus.toNaira(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            Text(currency.format(state.netSurplus), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 color = if (state.netSurplus >= 0) CoopGreen else CoopError)
         }
         Spacer(Modifier.height(4.dp))
@@ -165,8 +169,9 @@ private fun ProfitLossTab(state: AdminAccountingUiState) {
 
 @Composable
 private fun PlRow(label: String, amount: Double) {
+    val currency = currentCurrency()
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(amount.toNaira(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Text(currency.format(amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }

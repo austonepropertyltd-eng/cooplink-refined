@@ -16,7 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.*
 
 @Composable
@@ -106,12 +107,13 @@ fun StandingOrdersScreen(
 
 @Composable
 private fun StandingOrderCard(order: StandingOrder, onToggle: () -> Unit) {
+    val currency = currentCurrency()
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = CoopDarkSurface)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text(order.amount.toNaira(), style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(currency.format(order.amount), style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
                     Text(
                         order.purpose?.takeIf { it.isNotBlank() } ?: "Standing order",
                         style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.55f),

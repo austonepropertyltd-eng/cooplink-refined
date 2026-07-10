@@ -9,6 +9,20 @@ data class CurrencyConfig(
     val decimalPlaces: Int = 2,
 )
 
+fun CurrencyConfig.format(amount: Double): String {
+    val fmt = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
+    fmt.minimumFractionDigits = decimalPlaces
+    fmt.maximumFractionDigits = decimalPlaces
+    return "$symbol${fmt.format(amount)}"
+}
+
+fun CurrencyConfig.formatShort(amount: Double): String = when {
+    amount >= 1_000_000_000 -> "$symbol${"%.1f".format(amount / 1_000_000_000)}B"
+    amount >= 1_000_000     -> "$symbol${"%.1f".format(amount / 1_000_000)}M"
+    amount >= 1_000         -> "$symbol${"%.1f".format(amount / 1_000)}K"
+    else                    -> format(amount)
+}
+
 object SupportedCurrencies {
     val all = listOf(
         CurrencyConfig(code = "NGN", symbol = "₦",    name = "Nigerian Naira",         locale = "en-NG", flag = "🇳🇬"),

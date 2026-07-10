@@ -25,11 +25,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.Transaction
+import io.cooplink.app.core.domain.format
 import io.cooplink.app.core.ui.MemberAvatar
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.core.util.formatIsoDate
 import io.cooplink.app.ui.theme.*
-import java.text.NumberFormat
-import java.util.*
 
 private fun timeOfDayGreeting(): String {
     val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -45,21 +45,6 @@ private data class QuickAction(
     val route: String, val autoOpen: Boolean,
 )
 
-// ── Currency formatter ────────────────────────────────────────────────────────
-internal fun Double.toNaira(): String {
-    val fmt = NumberFormat.getNumberInstance(Locale.US)
-    fmt.minimumFractionDigits = 2
-    fmt.maximumFractionDigits = 2
-    return "₦${fmt.format(this)}"
-}
-
-internal fun Double.toNairaShort(): String = when {
-    this >= 1_000_000_000 -> "₦${"%.1f".format(this / 1_000_000_000)}B"
-    this >= 1_000_000     -> "₦${"%.1f".format(this / 1_000_000)}M"
-    this >= 1_000         -> "₦${"%.1f".format(this / 1_000)}K"
-    else                  -> this.toNaira()
-}
-
 @Composable
 fun OverviewScreen(
     onLogout: () -> Unit,
@@ -72,6 +57,7 @@ fun OverviewScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val kycState by kycViewModel.state.collectAsState()
+    val currency = currentCurrency()
 
     PullToRefreshBox(
         isRefreshing = state.isLoading,
@@ -253,7 +239,7 @@ fun OverviewScreen(
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     KpiCard(Modifier.weight(1f), "Total Savings",
-                        state.member?.totalSavings?.toNaira() ?: "₦0.00",
+                        currency.format(state.member?.totalSavings ?: 0.0),
                         Icons.Default.Savings, MemberGold, state.isLoading, rawAmount = state.member?.totalSavings ?: 0.0)
                     KpiCard(Modifier.weight(1f), "Active Loans",
                         "${state.activeLoansCount}",
@@ -263,7 +249,7 @@ fun OverviewScreen(
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     KpiCard(Modifier.weight(1f), "Share Capital",
-                        state.shareCapital.toNaira(),
+                        currency.format(state.shareCapital),
                         Icons.Default.PieChart, Color(0xFF9B59B6), state.isLoading, rawAmount = state.shareCapital)
                 }
             }
@@ -342,6 +328,7 @@ private fun KpiCard(modifier: Modifier, title: String, value: String,
 
 @Composable
 internal fun TransactionRow(tx: Transaction) {
+    val currency = currentCurrency()
     val isCredit = tx.type in listOf("contribution", "deposit", "wallet_funding", "credit")
     val color    = if (isCredit) CoopGreen else CoopError
     val sign     = if (isCredit) "+" else "-"
@@ -373,7 +360,7 @@ internal fun TransactionRow(tx: Transaction) {
                 )
             }
             Text(
-                "$sign${tx.amount.toNaira()}",
+                "$sign${currency.format(tx.amount)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = color, fontWeight = FontWeight.SemiBold,
             )

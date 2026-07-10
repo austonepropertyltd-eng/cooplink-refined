@@ -17,7 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopTeal
@@ -25,6 +26,7 @@ import io.cooplink.app.ui.theme.CoopTeal
 @Composable
 fun AdminShareCapitalScreen(viewModel: AdminShareCapitalViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var showRecordDialog by remember { mutableStateOf(false) }
 
@@ -50,7 +52,7 @@ fun AdminShareCapitalScreen(viewModel: AdminShareCapitalViewModel = hiltViewMode
                     Column(Modifier.padding(20.dp)) {
                         Text("Total Share Capital", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-                        Text(state.totalValue.toNaira(), style = MaterialTheme.typography.headlineMedium,
+                        Text(currency.format(state.totalValue), style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold, color = CoopGold)
                     }
                 }
@@ -82,7 +84,7 @@ fun AdminShareCapitalScreen(viewModel: AdminShareCapitalViewModel = hiltViewMode
                         ListItem(
                             headlineContent   = { Text(row.memberName ?: "Unnamed member") },
                             supportingContent = row.createdAt?.let { { Text(it.take(10)) } },
-                            trailingContent   = { Text(row.totalValue.toNaira(), fontWeight = FontWeight.SemiBold, color = CoopGold) },
+                            trailingContent   = { Text(currency.format(row.totalValue), fontWeight = FontWeight.SemiBold, color = CoopGold) },
                         )
                     }
                 }

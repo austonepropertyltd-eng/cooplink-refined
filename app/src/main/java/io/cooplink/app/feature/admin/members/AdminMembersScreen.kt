@@ -30,7 +30,8 @@ import io.cooplink.app.core.data.SignedUrlManager
 import io.cooplink.app.core.domain.KycBadge
 import io.cooplink.app.core.domain.MemberDetails
 import io.cooplink.app.core.ui.MemberAvatar
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.shell.CooperativeBrandingUiState
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
@@ -305,6 +306,7 @@ private fun MemberDetailSheet(
     onEdit: () -> Unit,
     onSendSms: () -> Unit,
 ) {
+    val currency = currentCurrency()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
         Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             MemberAvatar(
@@ -336,7 +338,7 @@ private fun MemberDetailSheet(
                 DetailRow("Email", member.email ?: "Not set")
                 DetailRow("Phone", member.phone ?: "Not set")
                 DetailRow("Member Since", member.createdAt?.take(10) ?: "Not set")
-                DetailRow("Total Savings", member.totalSavings.toNaira())
+                DetailRow("Total Savings", currency.format(member.totalSavings))
                 DetailRow("Cooperative", cooperativeName ?: "Not set")
             }
 

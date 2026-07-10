@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.Contribution
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.member.security.PinEntryDialog
 import io.cooplink.app.ui.theme.*
 
@@ -209,6 +210,7 @@ fun ContributionsScreen(
 
 @Composable
 private fun ContributionRow(c: Contribution) {
+    val currency = currentCurrency()
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = CoopDarkSurface)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -220,7 +222,7 @@ private fun ContributionRow(c: Contribution) {
                     color = Color.White.copy(.45f))
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(c.amount.toNaira(), style = MaterialTheme.typography.bodyMedium,
+                Text(currency.format(c.amount), style = MaterialTheme.typography.bodyMedium,
                     color = MemberGold, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 StatusChip(c.status)

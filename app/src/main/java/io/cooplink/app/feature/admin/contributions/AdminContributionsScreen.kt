@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.MemberDetails
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopTeal
@@ -110,6 +111,7 @@ fun AdminContributionsScreen(viewModel: AdminContributionsViewModel = hiltViewMo
 @Composable
 fun AdminSavingsScreen(viewModel: AdminContributionsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var showRecordDialog by remember { mutableStateOf(false) }
 
@@ -135,7 +137,7 @@ fun AdminSavingsScreen(viewModel: AdminContributionsViewModel = hiltViewModel())
                     Column(Modifier.padding(20.dp)) {
                         Text("Total Savings Pool", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(.5f))
-                        Text(state.poolTotal.toNaira(), style = MaterialTheme.typography.headlineMedium,
+                        Text(currency.format(state.poolTotal), style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold, color = CoopGold)
                     }
                 }
@@ -154,7 +156,7 @@ fun AdminSavingsScreen(viewModel: AdminContributionsViewModel = hiltViewModel())
                     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
                         ListItem(
                             headlineContent = { Text(row.memberName ?: "Unnamed member") },
-                            trailingContent = { Text(row.total.toNaira(), fontWeight = FontWeight.SemiBold, color = CoopGold) },
+                            trailingContent = { Text(currency.format(row.total), fontWeight = FontWeight.SemiBold, color = CoopGold) },
                         )
                     }
                 }
@@ -180,6 +182,7 @@ fun AdminSavingsScreen(viewModel: AdminContributionsViewModel = hiltViewModel())
 
 @Composable
 private fun ContributionRow(row: AdminContributionRow) {
+    val currency = currentCurrency()
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -188,7 +191,7 @@ private fun ContributionRow(row: AdminContributionRow) {
                     color = MaterialTheme.colorScheme.onSurface.copy(.5f))
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(row.amount.toNaira(), fontWeight = FontWeight.SemiBold, color = CoopGold)
+                Text(currency.format(row.amount), fontWeight = FontWeight.SemiBold, color = CoopGold)
                 Spacer(Modifier.height(4.dp))
                 Surface(color = statusColor(row.status).copy(alpha = 0.15f), shape = MaterialTheme.shapes.small) {
                     Text(row.status.replaceFirstChar { it.uppercase() }, color = statusColor(row.status),

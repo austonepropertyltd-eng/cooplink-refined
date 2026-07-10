@@ -16,7 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopSuccess
@@ -77,10 +78,11 @@ fun AdminStatementsScreen(viewModel: AdminStatementsViewModel = hiltViewModel())
 
 @Composable
 private fun StatementLine(label: String, amount: Double, color: androidx.compose.ui.graphics.Color, bold: Boolean = false) {
+    val currency = currentCurrency()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal)
-        Text(amount.toNaira(), style = MaterialTheme.typography.bodyMedium, color = color,
+        Text(currency.format(amount), style = MaterialTheme.typography.bodyMedium, color = color,
             fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium)
     }
 }

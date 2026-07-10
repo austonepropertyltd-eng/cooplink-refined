@@ -19,7 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
 import io.cooplink.app.ui.theme.CoopGreen
@@ -30,6 +31,7 @@ private enum class DividendTab { OVERVIEW, HISTORY }
 @Composable
 fun AdminDividendsScreen(viewModel: AdminDividendsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     val context = LocalContext.current
     var tab by remember { mutableStateOf(DividendTab.OVERVIEW) }
     var showDeclareDialog by remember { mutableStateOf(false) }
@@ -83,7 +85,7 @@ fun AdminDividendsScreen(viewModel: AdminDividendsViewModel = hiltViewModel()) {
                     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                         Column(Modifier.padding(20.dp)) {
                             Text("Total Distributed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            Text(state.totalDistributedAllTime.toNaira(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = CoopGreen)
+                            Text(currency.format(state.totalDistributedAllTime), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = CoopGreen)
                             Spacer(Modifier.height(12.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
@@ -110,7 +112,7 @@ fun AdminDividendsScreen(viewModel: AdminDividendsViewModel = hiltViewModel()) {
                             ListItem(
                                 headlineContent = { Text(batch.date) },
                                 supportingContent = { Text("${batch.memberCount} member(s)") },
-                                trailingContent = { Text(batch.totalAmount.toNaira(), fontWeight = FontWeight.Bold, color = CoopGreen) },
+                                trailingContent = { Text(currency.format(batch.totalAmount), fontWeight = FontWeight.Bold, color = CoopGreen) },
                             )
                         }
                     }
@@ -138,6 +140,7 @@ private fun DeclareDividendDialog(
     onDismiss: () -> Unit,
     onDeclared: () -> Unit,
 ) {
+    val currency = currentCurrency()
     var amount by remember { mutableStateOf("") }
     var method by remember { mutableStateOf(DistributionMethod.EQUAL_SHARE) }
     var methodMenuExpanded by remember { mutableStateOf(false) }
@@ -181,7 +184,7 @@ private fun DeclareDividendDialog(
                     preview!!.forEach { row ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(row.member.fullName ?: "Unnamed member", style = MaterialTheme.typography.bodySmall)
-                            Text(row.share.toNaira(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = CoopGreen)
+                            Text(currency.format(row.share), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = CoopGreen)
                         }
                         HorizontalDivider()
                     }

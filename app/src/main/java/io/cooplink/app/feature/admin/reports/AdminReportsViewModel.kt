@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
 import io.cooplink.app.core.data.CooperativeRepository
+import io.cooplink.app.core.data.CurrencyProvider
 import io.cooplink.app.core.data.MemberRepository
 import io.cooplink.app.core.domain.Contribution
 import io.cooplink.app.core.domain.Loan
@@ -14,7 +15,6 @@ import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.security.InactivityManager
 import io.cooplink.app.core.util.PremiumExportManager
 import io.cooplink.app.core.util.retrying
-import io.cooplink.app.feature.member.overview.toNaira
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,6 +66,7 @@ class AdminReportsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val cooperativeRepository: CooperativeRepository,
     private val memberRepository: MemberRepository,
+    private val currencyProvider: CurrencyProvider,
     val inactivityManager: InactivityManager,
     val exportManager: PremiumExportManager,
 ) : ViewModel() {
@@ -124,7 +125,7 @@ class AdminReportsViewModel @Inject constructor(
                     val rows = listOf(
                         ReportRow(
                             title      = "Loan Portfolio",
-                            summary    = "${loans.size} loans · ${loans.sumOf { it.outstandingBalance }.toNaira()} outstanding",
+                            summary    = "${loans.size} loans · ${currencyProvider.format(loans.sumOf { it.outstandingBalance })} outstanding",
                             csvHeader  = listOf("Member ID", "Outstanding", "Status", "Disbursed At"),
                             csvRows    = loans.map {
                                 listOf(displayIdFor(it.memberId), "${it.outstandingBalance}", it.status, it.disbursedAt ?: "")
@@ -132,7 +133,7 @@ class AdminReportsViewModel @Inject constructor(
                         ),
                         ReportRow(
                             title      = "Default & Arrears",
-                            summary    = "${defaulted.size} loans · ${defaulted.sumOf { it.outstandingBalance }.toNaira()} outstanding",
+                            summary    = "${defaulted.size} loans · ${currencyProvider.format(defaulted.sumOf { it.outstandingBalance })} outstanding",
                             csvHeader  = listOf("Member ID", "Outstanding", "Status"),
                             csvRows    = defaulted.map {
                                 listOf(displayIdFor(it.memberId), "${it.outstandingBalance}", it.status)
@@ -140,7 +141,7 @@ class AdminReportsViewModel @Inject constructor(
                         ),
                         ReportRow(
                             title      = "Savings Summary",
-                            summary    = "${contributions.size} contributions · ${contributions.sumOf { it.amount }.toNaira()} total",
+                            summary    = "${contributions.size} contributions · ${currencyProvider.format(contributions.sumOf { it.amount })} total",
                             csvHeader  = listOf("Member ID", "Amount", "Status", "Created At"),
                             csvRows    = contributions.map {
                                 listOf(displayIdFor(it.memberId), "${it.amount}", it.status, it.createdAt)
@@ -148,7 +149,7 @@ class AdminReportsViewModel @Inject constructor(
                         ),
                         ReportRow(
                             title      = "Collection Report",
-                            summary    = "${totalRepayments.toNaira()} collected",
+                            summary    = "${currencyProvider.format(totalRepayments)} collected",
                             csvHeader  = listOf("Member ID", "Amount", "Type", "Created At"),
                             csvRows    = repayments.map {
                                 listOf(displayIdFor(it.memberId), "${it.amount}", it.type, it.createdAt)

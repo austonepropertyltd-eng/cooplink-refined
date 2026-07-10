@@ -20,7 +20,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.LoanPlan
 import io.cooplink.app.core.domain.statusColor
 import io.cooplink.app.core.domain.statusLabel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.member.security.PinEntryDialog
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AdminLoansScreen(viewModel: AdminLoansViewModel = hiltViewModel()) {
+    val currency = currentCurrency()
     var tab by remember { mutableStateOf(0) }
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -109,7 +111,7 @@ fun AdminLoansScreen(viewModel: AdminLoansViewModel = hiltViewModel()) {
                                 ListItem(
                                     headlineContent = { Text(plan.name ?: "Unnamed package") },
                                     supportingContent = {
-                                        Text("${(plan.minAmount ?: 0.0).toNaira()} – ${(plan.maxAmount ?: 0.0).toNaira()}${if (!plan.active) " · Inactive" else ""}")
+                                        Text("${currency.format(plan.minAmount ?: 0.0)} – ${currency.format(plan.maxAmount ?: 0.0)}${if (!plan.active) " · Inactive" else ""}")
                                     },
                                     trailingContent = {
                                         Row {
@@ -229,11 +231,12 @@ private fun loanListOrEmpty(
 
 @Composable
 private fun ApplicationRow(row: AdminLoanRow, processingLoanId: String?, onApprove: (String) -> Unit, onReject: () -> Unit) {
+    val currency = currentCurrency()
     val isProcessing = processingLoanId == row.loan.id
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         Column(Modifier.padding(16.dp)) {
             Text(row.memberName ?: "Unnamed member", fontWeight = FontWeight.SemiBold)
-            Text(row.loan.outstandingBalance.toNaira(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(currency.format(row.loan.outstandingBalance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             row.loan.createdAt?.let {
                 Text("Applied ${it.take(10)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.5f))
             }
@@ -251,11 +254,12 @@ private fun ApplicationRow(row: AdminLoanRow, processingLoanId: String?, onAppro
 
 @Composable
 private fun DisbursementRow(row: AdminLoanRow, processingLoanId: String?, onDisburse: (String) -> Unit) {
+    val currency = currentCurrency()
     val isProcessing = processingLoanId == row.loan.id
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         Column(Modifier.padding(16.dp)) {
             Text(row.memberName ?: "Unnamed member", fontWeight = FontWeight.SemiBold)
-            Text(row.loan.outstandingBalance.toNaira(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(currency.format(row.loan.outstandingBalance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             Button(onClick = { onDisburse(row.loan.id) }, enabled = !isProcessing,
                 colors = ButtonDefaults.buttonColors(containerColor = CoopTeal)) {
@@ -267,6 +271,7 @@ private fun DisbursementRow(row: AdminLoanRow, processingLoanId: String?, onDisb
 
 @Composable
 private fun AdminLoanRowView(row: AdminLoanRow) {
+    val currency = currentCurrency()
     val loan = row.loan
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         Column(Modifier.padding(16.dp)) {
@@ -281,7 +286,7 @@ private fun AdminLoanRowView(row: AdminLoanRow) {
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text(loan.outstandingBalance.toNaira(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(currency.format(loan.outstandingBalance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             loan.interestRate?.let { rate ->
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

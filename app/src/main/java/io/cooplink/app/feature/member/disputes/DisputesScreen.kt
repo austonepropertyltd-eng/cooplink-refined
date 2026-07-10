@@ -15,7 +15,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.Transaction
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.*
 
 @Composable
@@ -148,6 +149,7 @@ private fun FileDisputeDialog(
     onDismiss: () -> Unit,
     onSubmit: (subject: String, description: String, category: String, transactionId: String?) -> Unit,
 ) {
+    val currency = currentCurrency()
     var subject by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(DisputeCategory.TRANSACTION) }
@@ -180,7 +182,7 @@ private fun FileDisputeDialog(
                 if (recentTransactions.isNotEmpty()) {
                     ExposedDropdownMenuBox(expanded = txMenuExpanded, onExpandedChange = { txMenuExpanded = it }) {
                         OutlinedTextField(
-                            value = selectedTransaction?.let { "${it.type} · ${it.amount.toNaira()} · ${it.createdAt.take(10)}" }
+                            value = selectedTransaction?.let { "${it.type} · ${currency.format(it.amount)} · ${it.createdAt.take(10)}" }
                                 ?: "None (general dispute)",
                             onValueChange = {}, readOnly = true,
                             label = { Text("Related Transaction (optional)") },
@@ -192,7 +194,7 @@ private fun FileDisputeDialog(
                                 onClick = { selectedTransaction = null; txMenuExpanded = false })
                             recentTransactions.forEach { tx ->
                                 DropdownMenuItem(
-                                    text = { Text("${tx.type} · ${tx.amount.toNaira()} · ${tx.createdAt.take(10)}") },
+                                    text = { Text("${tx.type} · ${currency.format(tx.amount)} · ${tx.createdAt.take(10)}") },
                                     onClick = { selectedTransaction = tx; txMenuExpanded = false },
                                 )
                             }

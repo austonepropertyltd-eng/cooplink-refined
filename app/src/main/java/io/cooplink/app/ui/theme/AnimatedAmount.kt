@@ -9,8 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import java.text.NumberFormat
-import java.util.Locale
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 
 /** Counts up/down to [amount] instead of snapping straight to the new value —
  * used for balances and KPI figures that change after a refresh. */
@@ -19,19 +19,15 @@ fun AnimatedAmount(
     amount: Double,
     style: TextStyle,
     color: Color,
-    prefix: String = "₦",
 ) {
+    val currency = currentCurrency()
     val animatedValue by animateFloatAsState(
         targetValue = amount.toFloat(),
         animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
         label = "balance_animation",
     )
-    val fmt = NumberFormat.getNumberInstance(Locale.US).apply {
-        minimumFractionDigits = 2
-        maximumFractionDigits = 2
-    }
     Text(
-        text = "$prefix${fmt.format(animatedValue.toDouble())}",
+        text = currency.format(animatedValue.toDouble()),
         style = style,
         color = color,
         fontWeight = FontWeight.Bold,

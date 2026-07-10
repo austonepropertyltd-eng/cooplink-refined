@@ -22,7 +22,8 @@ import io.cooplink.app.core.domain.LoanPlan
 import io.cooplink.app.core.domain.isActive
 import io.cooplink.app.core.domain.statusColor
 import io.cooplink.app.core.domain.statusLabel
-import io.cooplink.app.feature.member.overview.toNaira
+import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.member.security.PinEntryDialog
 import io.cooplink.app.ui.theme.*
 import kotlin.math.pow
@@ -174,6 +175,7 @@ fun LoansScreen(
 
 @Composable
 private fun LoanRow(loan: Loan) {
+    val currency = currentCurrency()
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = CoopDarkSurface)) {
         Column(Modifier.padding(16.dp)) {
@@ -189,7 +191,7 @@ private fun LoanRow(loan: Loan) {
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text(loan.outstandingBalance.toNaira(), style = MaterialTheme.typography.headlineSmall,
+            Text(currency.format(loan.outstandingBalance), style = MaterialTheme.typography.headlineSmall,
                 color = Color.White, fontWeight = FontWeight.Bold)
             loan.interestRate?.let { rate ->
                 Spacer(Modifier.height(8.dp))
@@ -202,7 +204,7 @@ private fun LoanRow(loan: Loan) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Monthly Payment", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.45f))
-                    Text(payment.toNaira(), style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    Text(currency.format(payment), style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
             }
             // loans has no principal/amount column, so a repaid-percentage
@@ -235,6 +237,7 @@ private fun ApplyDialog(
     onDismiss: () -> Unit,
     onSubmit: (planId: String?, amount: Double, interestRate: Double) -> Unit,
 ) {
+    val currency = currentCurrency()
     var selectedPlan by remember(plans) { mutableStateOf(plans.firstOrNull()) }
     var planMenuExpanded by remember { mutableStateOf(false) }
     var amount   by remember { mutableStateOf("") }
@@ -296,7 +299,7 @@ private fun ApplyDialog(
                 val boundsLabel = selectedPlan?.let { plan ->
                     when {
                         plan.minAmount != null && plan.maxAmount != null ->
-                            "Amount (${plan.minAmount.toNaira()} – ${plan.maxAmount.toNaira()})"
+                            "Amount (${currency.format(plan.minAmount)} – ${currency.format(plan.maxAmount)})"
                         else -> "Amount (₦)"
                     }
                 } ?: "Amount (₦)"
