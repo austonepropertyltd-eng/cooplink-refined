@@ -25,14 +25,17 @@ private const val GENERIC_LOAD_ERROR = "Could not load repayments. Pull down to 
 
 // There is no loan_repayments, repayments, or payments table anywhere in the
 // schema (confirmed via probing) — a repayment is a transactions row with a
-// loan_id set, recorded with type "repayment". There's also no payment-method
-// column, so the method is folded into the free-text description.
+// loan_id set. transactions.type is a Postgres enum whose valid member for
+// this case is "loan_repayment", not "repayment" (confirmed via probing —
+// "repayment" throws invalid input value for enum transaction_type). There's
+// also no payment-method column, so the method is folded into the free-text
+// description.
 @Serializable
 private data class NewRepaymentRequest(
     val member_id: String,
     val cooperative_id: String?,
     val loan_id: String,
-    val type: String = "repayment",
+    val type: String = "loan_repayment",
     val amount: Double,
     val description: String? = null,
 )
@@ -123,7 +126,7 @@ class AdminRepaymentsViewModel @Inject constructor(
                         .select {
                             filter {
                                 eq("cooperative_id", coopId)
-                                eq("type", "repayment")
+                                eq("type", "loan_repayment")
                             }
                             order("created_at", Order.DESCENDING)
                         }
@@ -135,7 +138,7 @@ class AdminRepaymentsViewModel @Inject constructor(
                             .select {
                                 filter {
                                     isIn("member_id", memberIds)
-                                    eq("type", "repayment")
+                                    eq("type", "loan_repayment")
                                 }
                                 order("created_at", Order.DESCENDING)
                             }
