@@ -29,6 +29,7 @@ import io.cooplink.app.core.domain.format
 import io.cooplink.app.core.ui.MemberAvatar
 import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.core.util.formatIsoDate
+import io.cooplink.app.feature.shell.CooperativeBrandingUiState
 import io.cooplink.app.ui.theme.*
 
 private fun timeOfDayGreeting(): String {
@@ -52,6 +53,7 @@ fun OverviewScreen(
     onNavigateToTab: (route: String, autoOpen: Boolean) -> Unit = { _, _ -> },
     onNavigateToKyc: () -> Unit = {},
     onNavigateToAirtime: () -> Unit = {},
+    branding: CooperativeBrandingUiState = CooperativeBrandingUiState(),
     viewModel: MemberOverviewViewModel = hiltViewModel(),
     kycViewModel: io.cooplink.app.feature.member.profile.KycViewModel = hiltViewModel(),
 ) {
@@ -206,9 +208,11 @@ fun OverviewScreen(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    listOf(
+                    listOfNotNull(
                         QuickAction(Icons.Default.Payment,    "Pay",     MemberGold,          "contributions", autoOpen = true),
-                        QuickAction(Icons.Default.CreditCard, "Loan",    CoopTeal,             "loans",         autoOpen = true),
+                        if (branding.hasLoansModule)
+                            QuickAction(Icons.Default.CreditCard, "Loan", CoopTeal,            "loans",         autoOpen = true)
+                        else null,
                         QuickAction(Icons.Default.Savings,    "Savings", Color(0xFF9B59B6),    "contributions", autoOpen = false),
                         QuickAction(Icons.Default.PhoneAndroid, "Airtime", Color(0xFFE67E22),  "airtime",       autoOpen = false),
                         QuickAction(Icons.Default.Notifications, "Alerts", CoopNavy,           "notifications", autoOpen = false),

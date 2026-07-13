@@ -64,9 +64,9 @@ class KycRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val signedUrlManager: SignedUrlManager,
 ) {
-    private suspend fun KycColumnsRow.toKycData(): KycData = coroutineScope {
+    private suspend fun KycColumnsRow.toKycData(preferredUid: String? = null): KycData = coroutineScope {
         val idType = id_type?.let { raw -> IdType.entries.find { it.name.equals(raw, ignoreCase = true) } }
-        val uid = user_id ?: id
+        val uid = preferredUid ?: user_id ?: id
 
         val idDocDeferred = async { uid?.let { signedUrlManager.getKycDocUrl(it, id ?: it, "id_document") } }
         val selfieDeferred = async { uid?.let { signedUrlManager.getKycDocUrl(it, id ?: it, "selfie") } }
@@ -85,10 +85,17 @@ class KycRepository @Inject constructor(
         )
     }
 
+    // Always "my own" record (the member self-service screen) — the live
+    // session's auth uid is guaranteed to match wherever uploadKycImage()
+    // actually wrote to, unlike members.user_id, which is null/stale on some
+    // migrated rows and would otherwise sign a URL for a path that was never
+    // written (see KycViewModel.uploadIdDocument for the matching upload-time
+    // fix). getKycDataForCooperative (admin, other members) can't use this
+    // shortcut and keeps the user_id ?: id fallback.
     suspend fun getKycData(memberId: String): KycData = runCatching {
         val result = supabase.db["members"].select(COLUMNS) { filter { eq("id", memberId) } }
         val row = result.decodeSingleOrNull<KycColumnsRow>() ?: return@runCatching KycData()
-        row.toKycData()
+        row.toKycData(preferredUid = supabase.auth.currentSessionOrNull()?.user?.id)
     }.onFailure { Log.w(TAG, "Failed to load KYC data for $memberId", it) }.getOrDefault(KycData())
 
     /** All members of a cooperative with a KYC submission, keyed by member id

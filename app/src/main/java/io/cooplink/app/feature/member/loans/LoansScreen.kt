@@ -82,6 +82,16 @@ fun LoansScreen(
         }
     }
 
+    // Both dialogs (ApplyDialog and the PIN prompt) are already dismissed by
+    // the time submitApplication() runs, so a failure here previously had no
+    // way to reach the user — this is the only remaining surface for it.
+    LaunchedEffect(state.submitError) {
+        state.submitError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearSubmitError()
+        }
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         snackbarHost   = { SnackbarHost(snackbarHostState) },

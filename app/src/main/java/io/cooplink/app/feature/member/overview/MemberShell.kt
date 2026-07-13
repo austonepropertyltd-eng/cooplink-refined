@@ -148,7 +148,7 @@ fun MemberShell(
                 NavigationBar(containerColor = CoopDarkSurface, tonalElevation = 0.dp) {
                     val back    by nav.currentBackStackEntryAsState()
                     val current = back?.destination
-                    memberTabs.forEach { tab ->
+                    memberTabs.filter { branding.hasLoansModule || it.route != "loans" }.forEach { tab ->
                         val sel = current?.hierarchy?.any { it.route == tab.route } == true
                         NavigationBarItem(
                             selected = sel,
@@ -203,6 +203,7 @@ fun MemberShell(
                             onNavigateToTab      = navigateToTab,
                             onNavigateToKyc      = { nav.navigate("kyc") },
                             onNavigateToAirtime  = { nav.navigate("airtime") },
+                            branding             = branding,
                         )
                     }
                     composable(
@@ -233,7 +234,9 @@ fun MemberShell(
                     composable("notification_settings") {
                         io.cooplink.app.feature.member.notifications.NotificationSettingsScreen(onBack = { nav.popBackStack() })
                     }
-                    composable("kyc")            { KycScreen(onBack = { nav.popBackStack() }, inactivityManager = inactivityManager) }
+                    composable("kyc")            {
+                        KycScreen(onBack = { nav.popBackStack() }, inactivityManager = inactivityManager, branding = branding)
+                    }
                     composable("airtime")        { io.cooplink.app.feature.member.airtime.AirtimeScreen(onBack = { nav.popBackStack() }) }
                     composable("savings_goals")  {
                         io.cooplink.app.feature.member.savingsgoals.SavingsGoalsScreen(onBack = { nav.popBackStack() })

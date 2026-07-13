@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
+import io.cooplink.app.core.data.CurrencyProvider
 import io.cooplink.app.core.data.MemberRepository
 import io.cooplink.app.core.domain.Loan
 import io.cooplink.app.core.domain.LoanPlan
 import io.cooplink.app.core.domain.LoanStatus
+import io.cooplink.app.core.domain.MemberDetails
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.util.retrying
 import io.ktor.client.statement.bodyAsText
@@ -42,6 +44,16 @@ private data class LoanPlanRequest(
 @Serializable
 private data class LoanPlanPatch(val name: String, val min_amount: Double, val max_amount: Double, val active: Boolean)
 
+// notifications.user_id refers to the auth user id (MemberDetails.userId), not
+// the members.id — the two are only the same by coincidence for some rows.
+@Serializable
+private data class NewNotificationRequest(
+    val user_id: String,
+    val title: String,
+    val message: String,
+    val type: String = "loans",
+)
+
 data class AdminLoanRow(val loan: Loan, val memberName: String?)
 
 data class AdminLoansUiState(
@@ -67,11 +79,14 @@ class AdminLoansViewModel @Inject constructor(
     private val supabase: SupabaseClient,
     private val authRepository: AuthRepository,
     private val memberRepository: MemberRepository,
+    private val currencyProvider: CurrencyProvider,
     val bankVerificationService: io.cooplink.app.core.payment.BankVerificationService,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AdminLoansUiState())
     val state: StateFlow<AdminLoansUiState> = _state.asStateFlow()
+
+    private var membersCache: List<MemberDetails> = emptyList()
 
     init { load() }
 
@@ -80,7 +95,10 @@ class AdminLoansViewModel @Inject constructor(
     fun clearSnackbar() { _state.value = _state.value.copy(snackbarMessage = null) }
     fun clearPlanError() { _state.value = _state.value.copy(planError = null) }
 
-    fun approve(loanId: String) = updateStatus(loanId, LoanStatus.APPROVED, "Loan approved")
+    fun approve(loanId: String) = updateStatus(
+        loanId, LoanStatus.APPROVED, "Loan approved",
+        notifyTitle = "Loan Approved", notifyMessage = "Your loan application has been approved.",
+    )
 
     fun reject(loanId: String, reason: String) {
         viewModelScope.launch {
@@ -89,6 +107,10 @@ class AdminLoansViewModel @Inject constructor(
                 supabase.db["loans"].update(
                     LoanRejectUpdate(status = LoanStatus.REJECTED, rejection_reason = reason),
                 ) { filter { eq("id", loanId) } }
+                notifyMember(
+                    loanId, "Loan Rejected",
+                    if (reason.isNotBlank()) "Your loan application was rejected: $reason" else "Your loan application was rejected.",
+                )
                 _state.value = _state.value.copy(processingLoanId = null, snackbarMessage = "Loan rejected")
                 load()
             } catch (e: Exception) {
@@ -98,17 +120,31 @@ class AdminLoansViewModel @Inject constructor(
         }
     }
 
-    private fun updateStatus(loanId: String, status: String, successMessage: String) {
+    private fun updateStatus(loanId: String, status: String, successMessage: String, notifyTitle: String? = null, notifyMessage: String? = null) {
         viewModelScope.launch {
             _state.value = _state.value.copy(processingLoanId = loanId, actionError = null)
             try {
                 supabase.db["loans"].update(LoanStatusUpdate(status)) { filter { eq("id", loanId) } }
+                if (notifyTitle != null && notifyMessage != null) notifyMember(loanId, notifyTitle, notifyMessage)
                 _state.value = _state.value.copy(processingLoanId = null, snackbarMessage = successMessage)
                 load()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update loan $loanId to $status", e)
                 _state.value = _state.value.copy(processingLoanId = null, actionError = "Could not update this loan. Please try again.")
             }
+        }
+    }
+
+    // Best-effort — an in-app notification row, not a true push. Real push
+    // delivery (waking a backgrounded/closed app) needs a server-side FCM
+    // send with a secret key, which can't live in this client.
+    private fun notifyMember(loanId: String, title: String, message: String) {
+        val loan = _state.value.rows.find { it.loan.id == loanId }?.loan ?: return
+        val userId = membersCache.find { it.id == loan.memberId }?.userId ?: return
+        viewModelScope.launch {
+            runCatching {
+                supabase.db["notifications"].insert(NewNotificationRequest(user_id = userId, title = title, message = message))
+            }.onFailure { Log.w(TAG, "Failed to notify member $userId for loan $loanId", it) }
         }
     }
 
@@ -123,6 +159,9 @@ class AdminLoansViewModel @Inject constructor(
                 Log.d(TAG, "process-disbursement raw response: ${resp.bodyAsText()}")
 
                 supabase.db["loans"].update(LoanStatusUpdate(LoanStatus.DISBURSED)) { filter { eq("id", loanId) } }
+                val amount = _state.value.rows.find { it.loan.id == loanId }?.loan?.outstandingBalance
+                val amountText = amount?.let { currencyProvider.format(it) } ?: "Your loan"
+                notifyMember(loanId, "Loan Disbursed", "$amountText has been disbursed to your account.")
                 _state.value = _state.value.copy(processingLoanId = null, snackbarMessage = "Loan disbursed")
                 load()
             } catch (e: Exception) {
@@ -184,6 +223,7 @@ class AdminLoansViewModel @Inject constructor(
                         ?: throw IllegalStateException("Could not determine your cooperative")
 
                     val members = memberRepository.fetchMembersForCooperative(coopId)
+                    membersCache = members
                     val memberIds = members.map { it.id }
                     val namesByMemberId = members.associateBy { it.id }
 

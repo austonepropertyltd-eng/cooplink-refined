@@ -195,4 +195,15 @@ data class Cooperative(
     val email: String?               = null,
     @SerialName("primary_color")     val primaryColor: String?   = null,
     @SerialName("secondary_color")   val secondaryColor: String? = null,
-)
+    @SerialName("organization_type") val organizationType: String? = null,
+) {
+    val orgType: OrganizationType get() = OrganizationType.fromOrDefault(organizationType)
+
+    val isMicrofinance: Boolean get() = organizationType == "microfinance"
+
+    // Org types with no loans/repayments/disbursements module on the web
+    // platform — mirrored here so the same modules are hidden in the app.
+    val hasLoansModule: Boolean get() = organizationType !in listOf(
+        "investment_club", "thrift_ajo", "savings_group",
+    )
+}

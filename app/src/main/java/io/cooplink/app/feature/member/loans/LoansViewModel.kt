@@ -27,6 +27,11 @@ private data class NewLoanRequest(
     val cooperative_id: String?,
     val plan_id: String?,
     val outstanding_balance: Double,
+    // loans.amount_requested is a NOT NULL column — the amount applied for
+    // never changes after submission, unlike outstanding_balance which drops
+    // as repayments come in, so both are populated with the same starting
+    // value at insert time.
+    val amount_requested: Double,
     val interest_rate: Double,
     val status: String = LoanStatus.APPLIED,
 )
@@ -75,6 +80,7 @@ class LoansViewModel @Inject constructor(
                         cooperative_id      = member.cooperativeId,
                         plan_id             = planId,
                         outstanding_balance = amount,
+                        amount_requested    = amount,
                         interest_rate       = interestRate,
                     ),
                 )

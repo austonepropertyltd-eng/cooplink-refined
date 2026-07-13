@@ -46,6 +46,12 @@ data class ProfileUiState(
     val isChangingPassword: Boolean = false,
     val passwordError: String?   = null,
     val isUploadingAvatar: Boolean = false,
+    // Freshly-resolved signed URL for a photo just uploaded this session —
+    // passed straight to MemberAvatar's resolvedUrlOverride so the new photo
+    // renders immediately. Re-uploading to the same storage path means
+    // member.avatarUrl (the raw path) is unchanged, so MemberAvatar's own
+    // path-keyed resolution would just serve its previous cached signed URL.
+    val justUploadedAvatarUrl: String? = null,
 )
 
 @HiltViewModel
@@ -211,8 +217,17 @@ class ProfileViewModel @Inject constructor(
                 supabase.db["profiles"]
                     .update(AvatarUpdateRequest(avatar_url = path)) { filter { eq("user_id", uid) } }
 
-                _state.value = _state.value.copy(isUploadingAvatar = false, snackbarMessage = "Profile photo updated")
-                load()
+                // Force a fresh sign rather than risk the cached token for
+                // this same path from before the re-upload.
+                signedUrlManager.clearCache()
+                val freshUrl = signedUrlManager.getAvatarUrl(uid, path)
+
+                _state.value = _state.value.copy(
+                    isUploadingAvatar = false,
+                    snackbarMessage = "Profile photo updated",
+                    member = _state.value.member?.copy(avatarUrl = path),
+                    justUploadedAvatarUrl = freshUrl,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to upload avatar", e)
                 _state.value = _state.value.copy(

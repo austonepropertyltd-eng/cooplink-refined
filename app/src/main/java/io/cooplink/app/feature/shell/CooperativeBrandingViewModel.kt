@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
 import io.cooplink.app.core.data.CooperativeRepository
 import io.cooplink.app.core.data.SessionPreferences
+import io.cooplink.app.core.domain.OrganizationType
 import io.cooplink.app.core.network.SupabaseClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +22,14 @@ data class CooperativeBrandingUiState(
     val name: String?         = null,
     val logoUrl: String?      = null,
     val primaryColor: String? = null,
-)
+    val organizationType: String? = null,
+) {
+    val orgType: OrganizationType get() = OrganizationType.fromOrDefault(organizationType)
+    val isMicrofinance: Boolean get() = organizationType == "microfinance"
+    val hasLoansModule: Boolean get() = organizationType !in listOf(
+        "investment_club", "thrift_ajo", "savings_group",
+    )
+}
 
 /** Deliberately instantiated ONCE per shell (MemberShell/AdminShell) and
  * passed down as a parameter to child screens — calling hiltViewModel() for
@@ -64,7 +72,10 @@ class CooperativeBrandingViewModel @Inject constructor(
                     }
             }.onSuccess { coop ->
                 if (coop != null) {
-                    _state.value = CooperativeBrandingUiState(name = coop.name, logoUrl = coop.logoUrl, primaryColor = coop.primaryColor)
+                    _state.value = CooperativeBrandingUiState(
+                        name = coop.name, logoUrl = coop.logoUrl, primaryColor = coop.primaryColor,
+                        organizationType = coop.organizationType,
+                    )
                     sessionPreferences.saveCachedBranding(coop.name, coop.logoUrl, coop.primaryColor)
                 }
             }.onFailure { Log.w(TAG, "Failed to load cooperative branding", it) }

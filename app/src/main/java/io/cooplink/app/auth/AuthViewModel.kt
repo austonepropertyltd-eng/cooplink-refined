@@ -153,6 +153,10 @@ class AuthViewModel @Inject constructor(
                         "We couldn't find that account. Check your Member ID and try again."
                     it.contains("locked", ignoreCase = true) || it.contains("too many", ignoreCase = true) ->
                         "Too many attempts. Please wait a few minutes and try again."
+                    it.contains("organization_type", ignoreCase = true) || it.contains("organization type", ignoreCase = true) ->
+                        "Please select your organization type before continuing."
+                    this.statusCode == 400 ->
+                        "Request failed. Please check all fields and try again."
                     else -> it
                 }
             }

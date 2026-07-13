@@ -124,6 +124,7 @@ fun ProfileScreen(
                             avatarPath = member?.avatarUrl,
                             fullName = member?.fullName,
                             signedUrlManager = viewModel.signedUrlManager,
+                            resolvedUrlOverride = state.justUploadedAvatarUrl,
                             size = 100.dp,
                             modifier = Modifier.border(3.dp, CoopTeal, CircleShape),
                         )

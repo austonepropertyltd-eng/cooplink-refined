@@ -46,6 +46,10 @@ private val adminTabs = listOf(
     AdminTab("settings",  Icons.Default.Settings,      "Settings"),
 )
 
+// Drawer/tab routes the web platform hides for investment_club/thrift_ajo/
+// savings_group cooperatives — see Cooperative.hasLoansModule.
+private val LOANS_MODULE_ROUTES = setOf("loans", "repayments")
+
 @Composable
 fun AdminShell(
     onLogout: () -> Unit,
@@ -55,6 +59,7 @@ fun AdminShell(
     val scope  = rememberCoroutineScope()
     val nav    = rememberNavController()
     val branding by hiltViewModel<CooperativeBrandingViewModel>().state.collectAsState()
+    val showLoansModule = branding.hasLoansModule
 
     val expired by inactivityManager.sessionExpired.collectAsState()
     LaunchedEffect(expired) {
@@ -80,6 +85,7 @@ fun AdminShell(
                 AdminDrawer(
                     cooperativeName = branding.name,
                     logoUrl         = branding.logoUrl,
+                    items           = drawerItems.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES },
                     onNavigate = { route ->
                         nav.navigate(route) {
                             popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -100,6 +106,8 @@ fun AdminShell(
                                     CooperativeLogoImage(branding.logoUrl, size = 40.dp)
                                     Spacer(Modifier.width(8.dp))
                                     Text("${branding.name ?: "CoopLink"} › Admin", fontWeight = FontWeight.SemiBold)
+                                    Spacer(Modifier.width(8.dp))
+                                    OrgTypeBadge(branding.orgType)
                                 }
                             },
                             navigationIcon = {
@@ -121,7 +129,7 @@ fun AdminShell(
                     NavigationBar(containerColor = CoopNavy, tonalElevation = 0.dp) {
                         val back by nav.currentBackStackEntryAsState()
                         val current = back?.destination
-                        adminTabs.forEach { tab ->
+                        adminTabs.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES }.forEach { tab ->
                             val sel = current?.hierarchy?.any { it.route == tab.route } == true
                             NavigationBarItem(
                                 selected = sel,
@@ -224,9 +232,31 @@ private val drawerItems = listOf(
 )
 
 @Composable
+private fun OrgTypeBadge(orgType: io.cooplink.app.core.domain.OrganizationType) {
+    val color = when (orgType) {
+        io.cooplink.app.core.domain.OrganizationType.MICROFINANCE    -> CoopTeal
+        io.cooplink.app.core.domain.OrganizationType.COOPERATIVE     -> CoopGreen
+        io.cooplink.app.core.domain.OrganizationType.INVESTMENT_CLUB -> CoopGold
+        io.cooplink.app.core.domain.OrganizationType.THRIFT_AJO      -> Color(0xFF9B59B6)
+        io.cooplink.app.core.domain.OrganizationType.SAVINGS_GROUP   -> Color(0xFF3498DB)
+        io.cooplink.app.core.domain.OrganizationType.SACCO           -> CoopGreen
+        io.cooplink.app.core.domain.OrganizationType.NGO             -> Color(0xFFE67E22)
+    }
+    Surface(shape = MaterialTheme.shapes.small, color = color.copy(alpha = 0.2f)) {
+        Text(
+            orgType.label,
+            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.9f),
+        )
+    }
+}
+
+@Composable
 private fun AdminDrawer(
     cooperativeName: String?,
     logoUrl: String?,
+    items: List<DrawerItem>,
     onNavigate: (String) -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -249,7 +279,7 @@ private fun AdminDrawer(
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 8.dp),
         ) {
-            drawerItems.forEach { item ->
+            items.forEach { item ->
                 NavigationDrawerItem(
                     icon     = { Icon(item.icon, null, tint = CoopTeal) },
                     label    = {
