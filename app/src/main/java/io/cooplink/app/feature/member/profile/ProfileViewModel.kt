@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 private const val TAG = "ProfileVM"
@@ -29,9 +32,6 @@ private const val GENERIC_LOAD_ERROR = "Could not load your profile. Pull down t
 
 @Serializable
 private data class ProfileUpdateRequest(val full_name: String, val phone: String?)
-
-@Serializable
-private data class MemberUpdateRequest(val date_of_birth: String?, val address: String?)
 
 @Serializable
 private data class AvatarUpdateRequest(val avatar_url: String)
@@ -109,7 +109,7 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isSavingInfo = true, saveInfoError = null)
             try {
-                val member = _state.value.member
+                _state.value.member
                     ?: throw IllegalStateException("Could not determine your member record")
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id
                     ?: throw IllegalStateException("Not authenticated")
@@ -118,13 +118,17 @@ class ProfileViewModel @Inject constructor(
                     .update(ProfileUpdateRequest(full_name = fullName, phone = phone.ifBlank { null })) {
                         filter { eq("user_id", uid) }
                     }
-                supabase.db["members"]
-                    .update(MemberUpdateRequest(
-                        date_of_birth = dateOfBirth.ifBlank { null },
-                        address       = address.ifBlank { null },
-                    )) {
-                        filter { eq("id", member.id) }
-                    }
+                // Direct UPDATEs to `members` are blocked by RLS — same RPC
+                // used for KYC submission, scoped server-side to auth.uid().
+                supabase.db.rpc(
+                    "update_member_self",
+                    buildJsonObject {
+                        putJsonObject("p_updates") {
+                            put("date_of_birth", dateOfBirth.ifBlank { null })
+                            put("address", address.ifBlank { null })
+                        }
+                    },
+                )
 
                 _state.value = _state.value.copy(isSavingInfo = false, snackbarMessage = "Profile updated")
                 load()

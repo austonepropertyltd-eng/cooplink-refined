@@ -48,6 +48,7 @@ class NotificationSettingsViewModel @Inject constructor(
             try {
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
                 supabase.db["device_tokens"].insert(DeviceTokenInsert(user_id = uid, token = token))
+                Log.d(TAG, "Device token saved for $uid: $token")
             } catch (e: Exception) {
                 Log.w(TAG, "Could not save device token (device_tokens table likely missing)", e)
             }

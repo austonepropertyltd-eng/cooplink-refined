@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,15 +35,6 @@ private data class KycColumnsRow(
     val kyc_submitted_at: String?  = null,
     val kyc_verified_at: String?   = null,
     val kyc_notes: String?         = null,
-)
-
-@Serializable
-private data class KycSubmitRequest(
-    val id_type: String,
-    val id_number: String,
-    val id_document_url: String?,
-    val kyc_status: String,
-    val kyc_submitted_at: String,
 )
 
 private val COLUMNS = Columns.list(
@@ -122,21 +114,28 @@ class KycRepository @Inject constructor(
         path
     }.onFailure { Log.w(TAG, "KYC image upload ($docType) for $memberId failed", it) }
 
+    // Direct UPDATEs to `members` are blocked by RLS — this RPC is the only
+    // path members have to edit their own row, scoped server-side to
+    // auth.uid() (memberId is accepted here only for the failure log, not
+    // sent to the function).
     suspend fun submitKyc(
         memberId: String,
         idType: IdType,
         idNumber: String,
         idDocumentPath: String?,
     ): Result<Unit> = runCatching {
-        supabase.db["members"].update(
-            KycSubmitRequest(
-                id_type          = idType.name,
-                id_number        = idNumber,
-                id_document_url  = idDocumentPath,
-                kyc_status       = "pending",
-                kyc_submitted_at = nowIso(),
-            ),
-        ) { filter { eq("id", memberId) } }
+        supabase.db.rpc(
+            "update_member_self",
+            buildJsonObject {
+                putJsonObject("p_updates") {
+                    put("id_type", idType.name)
+                    put("id_number", idNumber)
+                    put("id_document_url", idDocumentPath)
+                    put("kyc_status", "pending")
+                    put("kyc_submitted_at", nowIso())
+                }
+            },
+        )
         Unit
     }.onFailure { Log.e(TAG, "Failed to submit KYC for $memberId", it) }
 
