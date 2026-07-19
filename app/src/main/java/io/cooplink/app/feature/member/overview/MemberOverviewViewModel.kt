@@ -73,7 +73,7 @@ class MemberOverviewViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         member             = cachedMember.toDomain(),
                         recentTransactions = cachedTransactions.map { it.toDomain() },
-                        activeLoansCount   = cachedLoans.count { it.status == "disbursed" || it.status == "repaying" },
+                        activeLoansCount   = cachedLoans.count { it.status == "approved" || it.status == "disbursed" || it.status == "repaying" },
                     )
                 }.onFailure { Log.w(TAG, "Failed to read overview cache", it) }
             }
@@ -109,6 +109,7 @@ class MemberOverviewViewModel @Inject constructor(
                                         filter {
                                             eq("member_id", memberId)
                                             or {
+                                                eq("status", "approved")
                                                 eq("status", "disbursed")
                                                 eq("status", "repaying")
                                             }

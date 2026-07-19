@@ -23,6 +23,7 @@ data class CooperativeBrandingUiState(
     val logoUrl: String?      = null,
     val primaryColor: String? = null,
     val organizationType: String? = null,
+    val whatsappNumber: String? = null,
 ) {
     val orgType: OrganizationType get() = OrganizationType.fromOrDefault(organizationType)
     val isMicrofinance: Boolean get() = organizationType == "microfinance"
@@ -74,7 +75,7 @@ class CooperativeBrandingViewModel @Inject constructor(
                 if (coop != null) {
                     _state.value = CooperativeBrandingUiState(
                         name = coop.name, logoUrl = coop.logoUrl, primaryColor = coop.primaryColor,
-                        organizationType = coop.organizationType,
+                        organizationType = coop.organizationType, whatsappNumber = coop.whatsappNumber,
                     )
                     sessionPreferences.saveCachedBranding(coop.name, coop.logoUrl, coop.primaryColor)
                 }

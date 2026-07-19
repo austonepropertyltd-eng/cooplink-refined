@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -45,6 +46,8 @@ import io.cooplink.app.feature.shell.CooperativeBrandingViewModel
 import io.cooplink.app.feature.shell.CooperativeLogoImage
 import io.cooplink.app.ui.theme.*
 
+private const val TAG = "MemberShell"
+
 private data class MemberTab(val route: String, val icon: ImageVector, val label: String)
 private val memberTabs = listOf(
     MemberTab("overview",      Icons.Default.Home,        "Home"),
@@ -65,22 +68,28 @@ fun MemberShell(
 
     val notificationSettingsViewModel: io.cooplink.app.feature.member.notifications.NotificationSettingsViewModel = hiltViewModel()
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        Log.d(TAG, "POST_NOTIFICATIONS permission result: granted=$granted")
         if (granted) {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { token -> notificationSettingsViewModel.saveDeviceToken(token) }
+                .addOnFailureListener { e -> Log.w(TAG, "Failed to fetch FCM token", e) }
         }
     }
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            Log.d(TAG, "POST_NOTIFICATIONS already granted: $granted")
+            if (!granted) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                     .addOnSuccessListener { token -> notificationSettingsViewModel.saveDeviceToken(token) }
+                    .addOnFailureListener { e -> Log.w(TAG, "Failed to fetch FCM token", e) }
             }
         } else {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { token -> notificationSettingsViewModel.saveDeviceToken(token) }
+                .addOnFailureListener { e -> Log.w(TAG, "Failed to fetch FCM token", e) }
         }
     }
 
