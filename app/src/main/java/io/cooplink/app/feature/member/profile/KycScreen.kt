@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -169,7 +171,10 @@ fun KycScreen(
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = idNumber,
-                        onValueChange = { if (!isMicrofinance || it.length <= 11) idNumber = it },
+                        onValueChange = { input ->
+                            if (!isMicrofinance) idNumber = input
+                            else if (input.length <= 11 && input.all { it.isDigit() }) idNumber = input
+                        },
                         label = { Text(if (isMicrofinance) "BVN (Required)" else "ID Number") },
                         placeholder = { Text(if (isMicrofinance) "Enter your 11-digit BVN" else "Enter your ID number") },
                         leadingIcon = { Icon(Icons.Default.Badge, null) },
@@ -177,6 +182,7 @@ fun KycScreen(
                         supportingText = if (isMicrofinance) {
                             { Text("11-digit BVN required for microfinance KYC") }
                         } else null,
+                        keyboardOptions = if (isMicrofinance) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         colors = kycFieldColors(),
                     )
@@ -247,7 +253,7 @@ fun KycScreen(
 
                 item {
                     val canSubmit = if (isMicrofinance) {
-                        idNumber.length == 11 && !state.isLoading && !state.isUploading
+                        idNumber.length == 11 && idNumber.all { it.isDigit() } && !state.isLoading && !state.isUploading
                     } else {
                         selectedIdType != null && idNumber.isNotBlank() && !state.isLoading && !state.isUploading
                     }

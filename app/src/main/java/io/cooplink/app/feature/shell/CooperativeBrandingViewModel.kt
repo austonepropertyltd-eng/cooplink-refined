@@ -56,7 +56,10 @@ class CooperativeBrandingViewModel @Inject constructor(
             // "CoopLink" fallback for a beat on every fresh launch.
             val cached = sessionPreferences.cachedBrandingFlow.first()
             if (cached.name != null || cached.logoUrl != null) {
-                _state.value = CooperativeBrandingUiState(cached.name, cached.logoUrl, cached.primaryColor)
+                _state.value = CooperativeBrandingUiState(
+                    cached.name, cached.logoUrl, cached.primaryColor,
+                    cached.organizationType, cached.whatsappNumber,
+                )
             }
 
             runCatching {
@@ -77,7 +80,10 @@ class CooperativeBrandingViewModel @Inject constructor(
                         name = coop.name, logoUrl = coop.logoUrl, primaryColor = coop.primaryColor,
                         organizationType = coop.organizationType, whatsappNumber = coop.whatsappNumber,
                     )
-                    sessionPreferences.saveCachedBranding(coop.name, coop.logoUrl, coop.primaryColor)
+                    sessionPreferences.saveCachedBranding(
+                        coop.name, coop.logoUrl, coop.primaryColor,
+                        coop.organizationType, coop.whatsappNumber,
+                    )
                 }
             }.onFailure { Log.w(TAG, "Failed to load cooperative branding", it) }
         }

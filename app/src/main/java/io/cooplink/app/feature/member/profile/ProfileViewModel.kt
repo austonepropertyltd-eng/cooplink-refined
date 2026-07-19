@@ -120,12 +120,17 @@ class ProfileViewModel @Inject constructor(
                     }
                 // Direct UPDATEs to `members` are blocked by RLS — same RPC
                 // used for KYC submission, scoped server-side to auth.uid().
+                // Blank fields are omitted entirely (not sent as null) since
+                // this dialog always opens with dob/address blank (there's
+                // no source to pre-populate them from) — sending an explicit
+                // null would wipe a previously-saved value on every edit
+                // that doesn't re-type it, rather than leaving it untouched.
                 supabase.db.rpc(
                     "update_member_self",
                     buildJsonObject {
                         putJsonObject("p_updates") {
-                            put("date_of_birth", dateOfBirth.ifBlank { null })
-                            put("address", address.ifBlank { null })
+                            dateOfBirth.ifBlank { null }?.let { put("date_of_birth", it) }
+                            address.ifBlank { null }?.let { put("address", it) }
                         }
                     },
                 )
