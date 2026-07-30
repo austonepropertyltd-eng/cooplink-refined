@@ -1,0 +1,7 @@
+I need three new columns added to the `cooperatives` table for a per-cooperative savings interest feature I'm building in the Android app:
+
+1. `savings_interest_rate` — NUMERIC, default 0. An annual percentage rate (e.g. 5 means 5%/year), admin-configurable per cooperative.
+2. `savings_interest_method` — TEXT, default 'simple_estimate'. A CHECK constraint restricting it to exactly two values: 'simple_estimate' (interest is only ever computed live for display — no money actually moves) and 'periodic_credit' (an admin manually triggers crediting accrued interest into each member's contributions as a real transaction — there's no automatic scheduler on my end, this is admin-initiated each time).
+3. `savings_interest_last_credited_at` — TIMESTAMPTZ, nullable. Only used by the periodic_credit method, to compute the elapsed period since the last time an admin applied interest (so re-running it doesn't double-credit the same period).
+
+Please add these three columns with the defaults above. No RLS changes should be needed since they're just additional columns on a table cooperative admins can already update (same pattern as existing columns like `currency`, `primary_color`). Please confirm the columns were added and report back their exact names/types so I can verify against what I'm building.

@@ -252,10 +252,13 @@ fun KycScreen(
                 }
 
                 item {
+                    val hasDocument = state.kycData.idDocumentUrl != null
                     val canSubmit = if (isMicrofinance) {
-                        idNumber.length == 11 && idNumber.all { it.isDigit() } && !state.isLoading && !state.isUploading
+                        selectedIdType != null && idNumber.length == 11 && idNumber.all { it.isDigit() } &&
+                            hasDocument && !state.isLoading && !state.isUploading
                     } else {
-                        selectedIdType != null && idNumber.isNotBlank() && !state.isLoading && !state.isUploading
+                        selectedIdType != null && idNumber.isNotBlank() &&
+                            hasDocument && !state.isLoading && !state.isUploading
                     }
                     Button(
                         onClick = { viewModel.submitKyc(selectedIdType!!, idNumber) },
@@ -271,6 +274,16 @@ fun KycScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("Submit KYC for Review", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         }
+                    }
+                    if (!hasDocument) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Upload your ID document above before submitting.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CoopError,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(

@@ -1,7 +1,10 @@
 package io.cooplink.app.feature.admin.dashboard
 
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -55,12 +59,6 @@ fun AdminShell(
     onLogout: () -> Unit,
     inactivityManager: io.cooplink.app.core.security.InactivityManager = hiltViewModel<AdminShellViewModel>().inactivityManager,
 ) {
-    val drawer = rememberDrawerState(DrawerValue.Closed)
-    val scope  = rememberCoroutineScope()
-    val nav    = rememberNavController()
-    val branding by hiltViewModel<CooperativeBrandingViewModel>().state.collectAsState()
-    val showLoansModule = branding.hasLoansModule
-
     val expired by inactivityManager.sessionExpired.collectAsState()
     LaunchedEffect(expired) {
         if (expired) {
@@ -78,119 +76,201 @@ fun AdminShell(
         return
     }
 
-    CoopLinkAdminTheme(accentColor = io.cooplink.app.ui.theme.parseHexColorOrNull(branding.primaryColor)) {
-        ModalNavigationDrawer(
-            drawerState   = drawer,
-            drawerContent = {
-                AdminDrawer(
-                    cooperativeName = branding.name,
-                    logoUrl         = branding.logoUrl,
-                    items           = drawerItems.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES },
-                    onNavigate = { route ->
+    // Session-level — must survive a cooperative switch below, since it's
+    // what drives the switch (and isSuperAdmin/inactivity aren't
+    // cooperative-specific).
+    val switcherViewModel: CooperativeSwitcherViewModel = hiltViewModel()
+    val switcherState by switcherViewModel.state.collectAsState()
+    val overrideCoopId by switcherViewModel.overrideCooperativeId.collectAsState()
+
+    // Re-keying on the super admin's selected cooperative disposes and fully
+    // recreates everything below — every hiltViewModel() in this subtree
+    // (all ~15 admin screens plus CooperativeBrandingViewModel) — so a
+    // switch can never leave a screen showing stale data left over from a
+    // previously-viewed cooperative. overrideCoopId stays null for every
+    // role except super_admin, so this key never changes for anyone else.
+    key(overrideCoopId) {
+        val drawer = rememberDrawerState(DrawerValue.Closed)
+        val scope  = rememberCoroutineScope()
+        val nav    = rememberNavController()
+        val branding by hiltViewModel<CooperativeBrandingViewModel>().state.collectAsState()
+        val showLoansModule = branding.hasLoansModule
+
+        CoopLinkAdminTheme(accentColor = io.cooplink.app.ui.theme.parseHexColorOrNull(branding.primaryColor)) {
+            ModalNavigationDrawer(
+                drawerState   = drawer,
+                drawerContent = {
+                    AdminDrawer(
+                        cooperativeName = branding.name,
+                        logoUrl         = branding.logoUrl,
+                        items           = drawerItems.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES },
+                        onNavigate = { route ->
+                            nav.navigate(route) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true; restoreState = true
+                            }
+                            scope.launch { drawer.close() }
+                        },
+                        onLogout = onLogout,
+                    )
+                },
+            ) {
+                Scaffold(
+                    topBar = {
+                        Column {
+                            TopAppBar(
+                                title = {
+                                    // The name Text is unbounded width by default, which can
+                                    // hog the whole title slot on a real device and push
+                                    // whatever comes after (the switcher chip especially,
+                                    // since it's last) off-screen entirely rather than just
+                                    // visually crowding it. weight(fill = false) + ellipsis
+                                    // caps it to only the space it needs, leaving room for
+                                    // the badge/chip to always render.
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CooperativeLogoImage(branding.logoUrl, size = 40.dp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "${branding.name ?: "CoopLink"} › Admin", fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        OrgTypeBadge(branding.orgType)
+                                        if (switcherState.isSuperAdmin) {
+                                            Spacer(Modifier.width(8.dp))
+                                            CooperativeSwitcherChip(currentName = branding.name, viewModel = switcherViewModel)
+                                        }
+                                    }
+                                },
+                                navigationIcon = {
+                                    IconButton(onClick = { scope.launch { drawer.open() } }) {
+                                        Icon(Icons.Default.Menu, "Menu")
+                                    }
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor             = CoopNavy,
+                                    titleContentColor          = Color.White,
+                                    navigationIconContentColor = Color.White,
+                                    actionIconContentColor     = Color.White,
+                                ),
+                            )
+                            io.cooplink.app.feature.shell.OfflineBanner()
+                        }
+                    },
+                    bottomBar = {
+                        NavigationBar(containerColor = CoopNavy, tonalElevation = 0.dp) {
+                            val back by nav.currentBackStackEntryAsState()
+                            val current = back?.destination
+                            adminTabs.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES }.forEach { tab ->
+                                val sel = current?.hierarchy?.any { it.route == tab.route } == true
+                                NavigationBarItem(
+                                    selected = sel,
+                                    onClick = {
+                                        inactivityManager.onUserInteraction()
+                                        nav.navigate(tab.route) {
+                                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                            launchSingleTop = true; restoreState = true
+                                        }
+                                    },
+                                    icon  = { Icon(tab.icon, tab.label, tint = if (sel) CoopGold else Color.White.copy(.45f)) },
+                                    label = { Text(tab.label, color = if (sel) CoopGold else Color.White.copy(.45f),
+                                        style = MaterialTheme.typography.labelSmall) },
+                                    colors = NavigationBarItemDefaults.colors(indicatorColor = CoopGold.copy(.15f)),
+                                )
+                            }
+                        }
+                    },
+                ) { padding ->
+                    val navigateToTab: (String) -> Unit = { route ->
+                        inactivityManager.onUserInteraction()
                         nav.navigate(route) {
                             popUpTo(nav.graph.findStartDestination().id) { saveState = true }
                             launchSingleTop = true; restoreState = true
                         }
-                        scope.launch { drawer.close() }
-                    },
-                    onLogout = onLogout,
-                )
-            },
-        ) {
-            Scaffold(
-                topBar = {
-                    Column {
-                        TopAppBar(
-                            title = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CooperativeLogoImage(branding.logoUrl, size = 40.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("${branding.name ?: "CoopLink"} › Admin", fontWeight = FontWeight.SemiBold)
-                                    Spacer(Modifier.width(8.dp))
-                                    OrgTypeBadge(branding.orgType)
-                                }
-                            },
-                            navigationIcon = {
-                                IconButton(onClick = { scope.launch { drawer.open() } }) {
-                                    Icon(Icons.Default.Menu, "Menu")
-                                }
-                            },
-                            colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor             = CoopNavy,
-                                titleContentColor          = Color.White,
-                                navigationIconContentColor = Color.White,
-                                actionIconContentColor     = Color.White,
-                            ),
-                        )
-                        io.cooplink.app.feature.shell.OfflineBanner()
                     }
-                },
-                bottomBar = {
-                    NavigationBar(containerColor = CoopNavy, tonalElevation = 0.dp) {
-                        val back by nav.currentBackStackEntryAsState()
-                        val current = back?.destination
-                        adminTabs.filter { showLoansModule || it.route !in LOANS_MODULE_ROUTES }.forEach { tab ->
-                            val sel = current?.hierarchy?.any { it.route == tab.route } == true
-                            NavigationBarItem(
-                                selected = sel,
-                                onClick = {
+                    NavHost(
+                        nav, startDestination = "overview",
+                        modifier = Modifier.padding(padding).pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent()
                                     inactivityManager.onUserInteraction()
-                                    nav.navigate(tab.route) {
-                                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true; restoreState = true
-                                    }
-                                },
-                                icon  = { Icon(tab.icon, tab.label, tint = if (sel) CoopGold else Color.White.copy(.45f)) },
-                                label = { Text(tab.label, color = if (sel) CoopGold else Color.White.copy(.45f),
-                                    style = MaterialTheme.typography.labelSmall) },
-                                colors = NavigationBarItemDefaults.colors(indicatorColor = CoopGold.copy(.15f)),
-                            )
-                        }
-                    }
-                },
-            ) { padding ->
-                val navigateToTab: (String) -> Unit = { route ->
-                    inactivityManager.onUserInteraction()
-                    nav.navigate(route) {
-                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true; restoreState = true
-                    }
-                }
-                NavHost(
-                    nav, startDestination = "overview",
-                    modifier = Modifier.padding(padding).pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                awaitPointerEvent()
-                                inactivityManager.onUserInteraction()
+                                }
                             }
+                        },
+                    ) {
+                        composable("overview")      { AdminDashboardScreen(onLogout, onNavigateToTab = navigateToTab) }
+                        composable("members")       { AdminMembersScreen(branding = branding) }
+                        composable("loans")         { AdminLoansScreen() }
+                        composable("reports")       { AdminReportsScreen() }
+                        composable("settings")      { AdminSettingsScreen(onLogout, onOpenBranding = { nav.navigate("branding") }) }
+                        composable("contributions") { AdminContributionsScreen() }
+                        composable("share_capital") { AdminShareCapitalScreen() }
+                        composable("savings")       { AdminSavingsScreen() }
+                        composable("repayments")    { AdminRepaymentsScreen() }
+                        composable("transactions")  { AdminTransactionsScreen() }
+                        composable("statements")    { AdminStatementsScreen() }
+                        composable("sms")           { AdminSmsScreen() }
+                        composable("notifications") { AdminNotificationsScreen() }
+                        composable("kyc_review")    { io.cooplink.app.feature.admin.kyc.AdminKycReviewScreen() }
+                        composable("fraud_alerts")  { io.cooplink.app.feature.admin.fraudalerts.AdminFraudAlertsScreen() }
+                        composable("payment_history") { io.cooplink.app.feature.admin.paymenthistory.AdminPaymentHistoryScreen() }
+                        composable("accounting")     { io.cooplink.app.feature.admin.accounting.AdminAccountingScreen() }
+                        composable("dividends")      { io.cooplink.app.feature.admin.dividends.AdminDividendsScreen() }
+                        composable("branding")       { io.cooplink.app.feature.admin.branding.AdminBrandingScreen() }
+                        composable("resources")      {
+                            io.cooplink.app.feature.admin.resources.MarketingResourcesScreen(onBack = { nav.popBackStack() })
                         }
-                    },
-                ) {
-                    composable("overview")      { AdminDashboardScreen(onLogout, onNavigateToTab = navigateToTab) }
-                    composable("members")       { AdminMembersScreen(branding = branding) }
-                    composable("loans")         { AdminLoansScreen() }
-                    composable("reports")       { AdminReportsScreen() }
-                    composable("settings")      { AdminSettingsScreen(onLogout, onOpenBranding = { nav.navigate("branding") }) }
-                    composable("contributions") { AdminContributionsScreen() }
-                    composable("share_capital") { AdminShareCapitalScreen() }
-                    composable("savings")       { AdminSavingsScreen() }
-                    composable("repayments")    { AdminRepaymentsScreen() }
-                    composable("transactions")  { AdminTransactionsScreen() }
-                    composable("statements")    { AdminStatementsScreen() }
-                    composable("sms")           { AdminSmsScreen() }
-                    composable("notifications") { AdminNotificationsScreen() }
-                    composable("kyc_review")    { io.cooplink.app.feature.admin.kyc.AdminKycReviewScreen() }
-                    composable("payment_history") { io.cooplink.app.feature.admin.paymenthistory.AdminPaymentHistoryScreen() }
-                    composable("accounting")     { io.cooplink.app.feature.admin.accounting.AdminAccountingScreen() }
-                    composable("dividends")      { io.cooplink.app.feature.admin.dividends.AdminDividendsScreen() }
-                    composable("branding")       { io.cooplink.app.feature.admin.branding.AdminBrandingScreen() }
-                    composable("resources")      {
-                        io.cooplink.app.feature.admin.resources.MarketingResourcesScreen(onBack = { nav.popBackStack() })
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CooperativeSwitcherChip(currentName: String?, viewModel: CooperativeSwitcherViewModel) {
+    var showPicker by remember { mutableStateOf(false) }
+    val state by viewModel.state.collectAsState()
+
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = Color.White.copy(alpha = 0.15f),
+        modifier = Modifier.clickable { viewModel.loadCooperatives(); showPicker = true },
+    ) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                currentName ?: "Switch cooperative", style = MaterialTheme.typography.labelSmall,
+                color = Color.White, maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Default.SwapHoriz, "Switch cooperative", tint = Color.White, modifier = Modifier.size(14.dp))
+        }
+    }
+
+    if (showPicker) {
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text("Switch Cooperative") },
+            text = {
+                when {
+                    state.isLoading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                    state.cooperatives.isEmpty() -> Text("No cooperatives found.")
+                    else -> LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                        items(state.cooperatives, key = { it.id }) { coop ->
+                            ListItem(
+                                headlineContent = { Text(coop.name ?: "Unnamed cooperative") },
+                                modifier = Modifier.clickable { viewModel.select(coop.id); showPicker = false },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPicker = false }) { Text("Close") } },
+        )
     }
 }
 
@@ -219,12 +299,16 @@ private val drawerItems = listOf(
     DrawerItem(Icons.Default.AccountBalanceWallet,  "Bank & Cash",       "settings"),
     DrawerItem(Icons.Default.Palette,               "Branding",          "branding"),
     DrawerItem(Icons.Default.Sms,                   "SMS",               "sms", premium = true),
-    DrawerItem(Icons.Default.Warning,                "Fraud Alerts",     null),
+    DrawerItem(Icons.Default.Warning,                "Fraud Alerts",     "fraud_alerts"),
     DrawerItem(Icons.Default.LocalAtm,              "Disbursements",     "loans"),
     DrawerItem(Icons.Default.NotificationsActive,   "Reminders",         "sms"),
     DrawerItem(Icons.Default.AdminPanelSettings,    "Roles",             "settings"),
-    DrawerItem(Icons.Default.UploadFile,            "Excel Import",      null),
-    DrawerItem(Icons.Default.Campaign,               "Campaigns",        null),
+    // Both route to existing, working features rather than duplicating them —
+    // "Excel Import" opens the Members screen's own CSV import flow, and
+    // "Campaigns" opens the segmented bulk-SMS tool (recipient groups,
+    // message composer, send log already built there).
+    DrawerItem(Icons.Default.UploadFile,            "Excel Import",      "members"),
+    DrawerItem(Icons.Default.Campaign,               "Campaigns",        "sms"),
     DrawerItem(Icons.Default.ContactPage,           "Directory",         "members"),
     DrawerItem(Icons.Default.Notifications,         "Notifications",    "notifications"),
     DrawerItem(Icons.Default.Slideshow,              "Marketing Resources", "resources"),

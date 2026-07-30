@@ -26,13 +26,26 @@ private data class NewLoanRequest(
     val member_id: String,
     val cooperative_id: String?,
     val plan_id: String?,
+    // The full amount owed if approved — principal PLUS interest computed by
+    // the reducing-balance EMI formula in LoansScreen.calcLoan(), not the raw
+    // principal. Interest was previously calculated only for the "Repayment
+    // Summary" preview shown to the member and then discarded at submit time,
+    // so every loan's balance silently tracked principal only and admins
+    // recording repayments were never actually collecting any interest.
     val outstanding_balance: Double,
-    // loans.amount_requested is a NOT NULL column — the amount applied for
-    // never changes after submission, unlike outstanding_balance which drops
-    // as repayments come in, so both are populated with the same starting
-    // value at insert time.
+    // loans.amount_requested is a NOT NULL column — the raw principal applied
+    // for, which never changes after submission, unlike outstanding_balance
+    // which starts at principal+interest and drops as repayments come in.
     val amount_requested: Double,
     val interest_rate: Double,
+    val monthly_payment: Double,
+    val admin_fee: Double,
+    val duration_months: Int,
+    // The interest portion alone, set once and never touched again — unlike
+    // outstanding_balance (principal+interest, shrinks with repayments) this
+    // is what lets Accounting recognize real interest income later instead
+    // of a hardcoded 0.
+    val total_interest: Double,
     val status: String = LoanStatus.APPLIED,
 )
 
@@ -40,6 +53,10 @@ data class LoansUiState(
     val isLoading: Boolean       = true,
     val loans: List<Loan>       = emptyList(),
     val plans: List<LoanPlan>   = emptyList(),
+    // Distinguishes "cooperative genuinely has no active loan plans" from
+    // "the plans fetch failed" — both used to collapse into an empty list,
+    // shown to the member as a misleading "No loan plans are available".
+    val plansLoadFailed: Boolean = false,
     val error: String?          = null,
     val isSubmitting: Boolean   = false,
     val submitError: String?    = null,
@@ -67,7 +84,10 @@ class LoansViewModel @Inject constructor(
         _state.value = _state.value.copy(submitError = null)
     }
 
-    fun submitApplication(planId: String?, amount: Double, interestRate: Double) {
+    fun submitApplication(
+        planId: String?, amount: Double, interestRate: Double,
+        totalRepayable: Double, monthlyPayment: Double, adminFee: Double, durationMonths: Int,
+    ) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isSubmitting = true, submitError = null)
             try {
@@ -79,9 +99,15 @@ class LoansViewModel @Inject constructor(
                         member_id           = member.id,
                         cooperative_id      = member.cooperativeId,
                         plan_id             = planId,
-                        outstanding_balance = amount,
+                        outstanding_balance = totalRepayable,
                         amount_requested    = amount,
                         interest_rate       = interestRate,
+                        monthly_payment     = monthlyPayment,
+                        admin_fee           = adminFee,
+                        duration_months     = durationMonths,
+                        // outstanding_balance (= totalRepayable) is principal + interest,
+                        // so subtracting principal recovers the interest portion alone.
+                        total_interest      = totalRepayable - amount,
                     ),
                 )
                 _state.value = _state.value.copy(isSubmitting = false, justSubmitted = true)
@@ -114,7 +140,7 @@ class LoansViewModel @Inject constructor(
                         }
                         .decodeList<Loan>()
 
-                    val plans = member?.cooperativeId?.let { coopId ->
+                    val plansResult = member?.cooperativeId?.let { coopId ->
                         runCatching {
                             supabase.db["loan_plans"]
                                 .select {
@@ -124,10 +150,15 @@ class LoansViewModel @Inject constructor(
                                     }
                                 }
                                 .decodeList<LoanPlan>()
-                        }.getOrNull()
-                    } ?: emptyList()
+                        }.onFailure { Log.w(TAG, "Failed to load loan plans", it) }
+                    }
 
-                    LoansUiState(isLoading = false, loans = loans, plans = plans)
+                    LoansUiState(
+                        isLoading       = false,
+                        loans           = loans,
+                        plans           = plansResult?.getOrNull() ?: emptyList(),
+                        plansLoadFailed = plansResult?.isFailure == true,
+                    )
                 }
                 _state.value = result
             } catch (e: Exception) {

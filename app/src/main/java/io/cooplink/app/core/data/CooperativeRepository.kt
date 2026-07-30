@@ -39,6 +39,14 @@ class CooperativeRepository @Inject constructor(
         result.decodeSingleOrNull<Cooperative>()
     }.onFailure { Log.w(TAG, "Failed to fetch cooperative $cooperativeId", it) }.getOrNull()
 
+    /** Every cooperative on the platform — for the super-admin cooperative
+     * switcher only. An empty result for a real super admin account means
+     * RLS isn't granting them read access to other cooperatives' rows, which
+     * would need a backend fix, not a client one. */
+    suspend fun fetchAllCooperatives(): List<Cooperative> = runCatching {
+        supabase.db["cooperatives"].select().decodeList<Cooperative>()
+    }.onFailure { Log.w(TAG, "Failed to fetch all cooperatives", it) }.getOrDefault(emptyList())
+
     /** Single-RPC-call cooperative lookup for the signed-in user — meant for
      * shell branding (name/logo/color), which doesn't need the full record.
      * The function is scoped to `members` internally, so it returns nothing

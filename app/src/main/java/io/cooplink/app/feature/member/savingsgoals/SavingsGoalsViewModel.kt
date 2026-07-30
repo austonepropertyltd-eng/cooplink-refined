@@ -48,7 +48,10 @@ private data class NewSavingsGoalRequest(
     val goal_name: String,
     val target_amount: Double,
     val target_date: String?,
-    val status: String = SavingsGoalStatus.ACTIVE,
+    // No default — see NewRepaymentRequest.type in AdminRepaymentsViewModel
+    // for why a defaulted property is silently dropped from the request even
+    // when the call site passes exactly that value.
+    val status: String,
 )
 
 @Serializable
@@ -90,6 +93,12 @@ class SavingsGoalsViewModel @Inject constructor(
                         goal_name      = goalName,
                         target_amount  = targetAmount,
                         target_date    = targetDate,
+                        // Must be passed explicitly — kotlinx.serialization
+                        // doesn't encode a property still at its default
+                        // value, silently dropping it from the request and
+                        // failing on a NOT NULL constraint (confirmed live
+                        // for the identical pattern in AdminRepaymentsViewModel).
+                        status         = SavingsGoalStatus.ACTIVE,
                     ),
                 )
                 _state.value = _state.value.copy(isSubmitting = false)

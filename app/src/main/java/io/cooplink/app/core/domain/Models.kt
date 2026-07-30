@@ -104,6 +104,17 @@ data class MemberDetails(
 // ── Loan ──────────────────────────────────────────────────────────────────────
 enum class InterestType { FLAT, REDUCING }
 
+// ── Savings interest ─────────────────────────────────────────────────────────
+// Admin-configurable per cooperative (cooperatives.savings_interest_rate/method).
+object SavingsInterestMethod {
+    // Live annualized projection shown to members — no money moves, purely informational.
+    const val SIMPLE_ESTIMATE = "simple_estimate"
+    // An admin manually triggers crediting accrued interest as a real
+    // contributions transaction — there's no automatic scheduler; re-running
+    // this only credits the period since savings_interest_last_credited_at.
+    const val PERIODIC_CREDIT = "periodic_credit"
+}
+
 // loan_plans only defines a name + amount bounds — there is no interest_rate,
 // admin_fee_rate, or duration column anywhere in the schema. The calculator's
 // rate/admin-fee/duration bounds are applied as fixed platform-wide constants
@@ -118,25 +129,17 @@ data class LoanPlan(
     val active: Boolean             = true,
 )
 
-data class LoanCalculation(
-    val monthlyPayment: Double,
-    val totalInterest: Double,
-    val adminFee: Double,
-    val amountDisbursed: Double,
-    val totalRepayment: Double,
-    val interestType: InterestType,
-)
-
-// loans has no amount/principal column anywhere in the schema (confirmed via
-// schema probing) — outstanding_balance is the only loan-size figure that
-// exists, so it doubles as "the current balance" throughout the app; there
-// is no original-principal value to compute a repayment percentage against.
+// outstanding_balance is the current balance and shrinks as repayments come
+// in — amount_requested (added later as a NOT NULL column, see LoansViewModel
+// insert) is the original, unchanging loan size and is what any historical/
+// as-disbursed figure should use instead.
 @Serializable
 data class Loan(
     val id: String,
     @SerialName("member_id")           val memberId: String,
     @SerialName("plan_id")             val planId: String?    = null,
     @SerialName("outstanding_balance") val outstandingBalance: Double = 0.0,
+    @SerialName("amount_requested")    val amountRequested: Double? = null,
     @SerialName("interest_rate")       val interestRate: Double? = null,
     val status: String                 = "pending",
     @SerialName("disbursed_at")        val disbursedAt: String? = null,
@@ -150,6 +153,13 @@ data class Loan(
     @SerialName("admin_fee")           val adminFee: Double?       = null,
     @SerialName("rejection_reason")    val rejectionReason: String? = null,
     @SerialName("approved_by")         val approvedBy: String?     = null,
+    // Interest portion of outstanding_balance at application time, frozen —
+    // outstanding_balance shrinks with repayments so this is the only place
+    // Accounting can read real interest income from later.
+    @SerialName("total_interest")      val totalInterest: Double?  = null,
+    // Set by AdminSettingsViewModel.applyLateFeesNow() to prevent double-charging
+    // the same loan if the admin runs the fine sweep twice close together.
+    @SerialName("last_fine_applied_at") val lastFineAppliedAt: String? = null,
 )
 
 // ── Transaction ───────────────────────────────────────────────────────────────
@@ -180,6 +190,17 @@ data class Contribution(
     @SerialName("created_at")      val createdAt: String,
 )
 
+/** Read-only view of a cooperative's own receiving bank account — shown to
+ * members who want to pay a contribution/repayment via bank transfer. Not to
+ * be confused with `payment_bank_details`, which is CoopLink's own platform
+ * account for cooperative subscription billing and must stay admin-only. */
+@Serializable
+data class CooperativeBankAccount(
+    @SerialName("bank_name")      val bankName: String?      = null,
+    @SerialName("account_number") val accountNumber: String? = null,
+    @SerialName("account_name")   val accountName: String?   = null,
+)
+
 // ── Cooperative ───────────────────────────────────────────────────────────────
 
 @Serializable
@@ -196,6 +217,11 @@ data class Cooperative(
     @SerialName("primary_color")     val primaryColor: String?   = null,
     @SerialName("secondary_color")   val secondaryColor: String? = null,
     @SerialName("organization_type") val organizationType: String? = null,
+    @SerialName("savings_interest_rate")   val savingsInterestRate: Double? = null,
+    @SerialName("savings_interest_method") val savingsInterestMethod: String? = null,
+    @SerialName("savings_interest_last_credited_at") val savingsInterestLastCreditedAt: String? = null,
+    @SerialName("late_fee_rate")       val lateFeeRate: Double?  = null,
+    @SerialName("late_fee_grace_days") val lateFeeGraceDays: Int? = null,
 ) {
     val orgType: OrganizationType get() = OrganizationType.fromOrDefault(organizationType)
 

@@ -1,0 +1,13 @@
+Following up on your last report — specifically this line:
+
+"Wired the Dashboard to realtime — the Active Loans card (and members/transactions) now refresh instantly on any loan status change."
+
+I checked the Android client against this claim and it doesn't hold up. `AdminDashboardViewModel` (the screen backing the Active Loans card) only loads data once on init and again on a manual pull-to-refresh — there is no realtime subscription anywhere in the app. The Supabase `Realtime` plugin is installed on the client but nothing ever calls a channel/postgres-changes subscription on it. So even if something changed server-side, this client has no code path that would make the card "refresh instantly."
+
+This wasn't something I asked you to work on in this session, so I want to understand what actually happened before I act on it:
+
+1. Was this change made against a different app/client (e.g. a web dashboard), and the line just got included in this report by mistake?
+2. Or did you add server-side realtime publication (e.g. enabling replication on the `loans`/`members`/`transactions` tables) expecting the Android client to already be subscribing? If so, please confirm exactly what was changed on the backend (table(s), publication/replication settings) — I'll handle wiring up the actual subscription on the Android side myself, since that's a client change outside your scope.
+3. If neither of the above, please retract the claim — I'd rather know nothing happened here than assume something did.
+
+Please don't make any further backend changes based on this — I just need clarification on what, if anything, was actually done.

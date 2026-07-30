@@ -151,7 +151,7 @@ fun ProfileScreen(
                     Text(branding.name ?: "CoopLink", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.6f))
                 }
                 Spacer(Modifier.height(10.dp))
-                StatusBadge(member?.status ?: "active")
+                StatusBadge(member?.status ?: "—")
                 Spacer(Modifier.height(14.dp))
                 ProfileDetailRow(Icons.Default.Email, member?.email ?: "—")
                 Spacer(Modifier.height(6.dp))
@@ -351,7 +351,27 @@ fun ProfileScreen(
     }
 
     if (showChangePin) {
-        io.cooplink.app.feature.member.security.SetupPinScreen(onDone = { showChangePin = false })
+        val pinViewModel: io.cooplink.app.feature.member.security.TransactionPinViewModel = hiltViewModel()
+        val pinAlreadySet by pinViewModel.isPinSet.collectAsState()
+        var oldPinVerified by remember { mutableStateOf(false) }
+
+        // Changing an existing PIN requires re-entering the current one first —
+        // otherwise anyone with the app open could silently overwrite it and
+        // use the new PIN to authorize payments, defeating its purpose as a
+        // second factor. First-time setup (no PIN set yet) has nothing to verify.
+        if (pinAlreadySet && !oldPinVerified) {
+            io.cooplink.app.feature.member.security.PinEntryDialog(
+                title = "Enter Current PIN",
+                viewModel = pinViewModel,
+                onSuccess = { oldPinVerified = true },
+                onDismiss = { showChangePin = false },
+            )
+        } else {
+            io.cooplink.app.feature.member.security.SetupPinScreen(
+                viewModel = pinViewModel,
+                onDone = { showChangePin = false },
+            )
+        }
     }
 }
 

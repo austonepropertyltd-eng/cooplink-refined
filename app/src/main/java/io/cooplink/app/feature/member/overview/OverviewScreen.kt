@@ -358,7 +358,7 @@ internal fun TransactionRow(tx: Transaction) {
                     color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    tx.createdAt.take(10),
+                    formatIsoDate(tx.createdAt) ?: tx.createdAt.take(10),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(.45f),
                 )

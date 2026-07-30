@@ -67,6 +67,8 @@ class ProfileViewModel @Inject constructor(
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     val autoLogoutEnabled: StateFlow<Boolean> = sessionPreferences.autoLogoutEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val requireBiometric: StateFlow<Boolean> = sessionPreferences.requireBiometricFlow
@@ -88,13 +90,15 @@ class ProfileViewModel @Inject constructor(
     fun refresh() = load()
 
     private fun load() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
-                val result = retrying {
-                    ProfileUiState(isLoading = false, member = memberRepository.findCurrentMember())
+                val member = retrying {
+                    memberRepository.findCurrentMember()
+                        ?: throw IllegalStateException("Could not determine your member record")
                 }
-                _state.value = result
+                _state.value = _state.value.copy(isLoading = false, member = member)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load profile", e)
                 _state.value = _state.value.copy(isLoading = false, error = GENERIC_LOAD_ERROR)

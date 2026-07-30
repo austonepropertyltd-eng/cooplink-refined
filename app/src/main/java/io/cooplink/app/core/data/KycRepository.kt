@@ -130,7 +130,11 @@ class KycRepository @Inject constructor(
                 putJsonObject("p_updates") {
                     put("id_type", idType.name)
                     put("id_number", idNumber)
-                    put("id_document_url", idDocumentPath)
+                    // Omitted (not sent as explicit null) when there's no new
+                    // upload this session — a resubmission (e.g. correcting
+                    // the ID number after a rejection) would otherwise wipe
+                    // out an already-uploaded document that's still valid.
+                    idDocumentPath?.let { put("id_document_url", it) }
                     put("kyc_status", "pending")
                     put("kyc_submitted_at", nowIso())
                 }

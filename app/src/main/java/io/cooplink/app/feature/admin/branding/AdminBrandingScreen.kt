@@ -14,13 +14,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +56,9 @@ fun AdminBrandingScreen(viewModel: AdminBrandingViewModel = hiltViewModel()) {
     var primaryColor by remember(coop) { mutableStateOf(coop?.primaryColor ?: "#243C54") }
     var secondaryColor by remember(coop) { mutableStateOf(coop?.secondaryColor ?: "#FCB424") }
     var whatsapp by remember(coop) { mutableStateOf(coop?.whatsappNumber ?: "") }
+    var address by remember(coop) { mutableStateOf(coop?.address ?: "") }
+    var phone by remember(coop) { mutableStateOf(coop?.phone ?: "") }
+    var email by remember(coop) { mutableStateOf(coop?.email ?: "") }
 
     LaunchedEffect(state.snackbarMessage) {
         state.snackbarMessage?.let {
@@ -66,15 +74,26 @@ fun AdminBrandingScreen(viewModel: AdminBrandingViewModel = hiltViewModel()) {
             val mime = context.contentResolver.getType(it) ?: "image/jpeg"
             val ext = mime.substringAfterLast("/").ifBlank { "jpg" }
             if (bytes != null) viewModel.uploadLogo(bytes, ext) { url -> if (url != null) logoUrl = url }
+            else Toast.makeText(context, "Could not read that image", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun parseColor(hex: String, fallback: Color) = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(fallback)
 
+    // Without this, the form renders immediately with local hardcoded
+    // defaults (e.g. "#243C54", a blank name) that then visibly jump to the
+    // real values once the load completes — and if it never completes
+    // (cooperative stays null), there was previously no indication anything
+    // was wrong, just a form that looks like a blank/new cooperative.
+    if (state.isLoading && coop == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Text("Cooperative Branding", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Customise how your cooperative appears", style = MaterialTheme.typography.bodySmall,
+            Text("Cooperative Profile", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Your cooperative's identity, contact details, and branding", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
         }
 
@@ -123,6 +142,17 @@ fun AdminBrandingScreen(viewModel: AdminBrandingViewModel = hiltViewModel()) {
             BrandingSection(title = "Cooperative Details") {
                 OutlinedTextField(value = coopName, onValueChange = { coopName = it }, label = { Text("Cooperative Name") },
                     leadingIcon = { Icon(Icons.Default.Business, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Address") },
+                    leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") },
+                    leadingIcon = { Icon(Icons.Default.Phone, null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") },
+                    leadingIcon = { Icon(Icons.Default.Email, null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = whatsapp, onValueChange = { whatsapp = it }, label = { Text("WhatsApp Number") },
                     leadingIcon = { Icon(Icons.Default.Chat, null) }, placeholder = { Text("2347061365172") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -194,7 +224,7 @@ fun AdminBrandingScreen(viewModel: AdminBrandingViewModel = hiltViewModel()) {
 
         item {
             Button(
-                onClick = { viewModel.save(coopName, logoUrl, primaryColor, secondaryColor, whatsapp) },
+                onClick = { viewModel.save(coopName, logoUrl, primaryColor, secondaryColor, whatsapp, address, phone, email) },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 enabled = coopName.isNotBlank() && !state.isSaving,
                 colors = ButtonDefaults.buttonColors(containerColor = io.cooplink.app.ui.theme.CoopGreen),

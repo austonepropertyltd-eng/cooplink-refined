@@ -3,6 +3,7 @@ package io.cooplink.app.feature.admin.settings
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,12 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.cooplink.app.feature.shell.CooperativeLogo
+import io.cooplink.app.core.domain.SavingsInterestMethod
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
+import io.cooplink.app.ui.theme.CoopGreen
 import io.cooplink.app.ui.theme.CoopTeal
 
-private enum class SettingsDialog { NONE, COOP_PROFILE, ROLES, SECURITY, BANK_ACCOUNTS }
+private enum class SettingsDialog { NONE, ROLES, SECURITY, BANK_ACCOUNTS, SAVINGS_INTEREST, LATE_FEES }
 
 @Composable
 fun AdminSettingsScreen(
@@ -40,6 +42,9 @@ fun AdminSettingsScreen(
     var dialog by remember { mutableStateOf(SettingsDialog.NONE) }
     var showSubscription by remember { mutableStateOf(false) }
     var showBankDetails by remember { mutableStateOf(false) }
+    var showSubscriptionOrders by remember { mutableStateOf(false) }
+    var showPricingPlans by remember { mutableStateOf(false) }
+    var showManageCooperatives by remember { mutableStateOf(false) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     val currentCurrency by viewModel.currencyProvider.currency.collectAsState()
 
@@ -65,23 +70,50 @@ fun AdminSettingsScreen(
         return
     }
 
+    if (showSubscriptionOrders) {
+        io.cooplink.app.feature.admin.subscription.AdminSubscriptionOrdersScreen(
+            onBack = { showSubscriptionOrders = false },
+        )
+        return
+    }
+
+    if (showPricingPlans) {
+        io.cooplink.app.feature.admin.subscription.AdminPricingPlansScreen(
+            onBack = { showPricingPlans = false },
+        )
+        return
+    }
+
+    if (showManageCooperatives) {
+        io.cooplink.app.feature.admin.subscription.AdminManageCooperativesScreen(
+            onBack = { showManageCooperatives = false },
+        )
+        return
+    }
+
     PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         data class SettingsItem(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val premium: Boolean, val action: () -> Unit)
         buildList {
-            add(SettingsItem(Icons.Default.Business, "Cooperative Profile", false) { dialog = SettingsDialog.COOP_PROFILE })
-            add(SettingsItem(Icons.Default.PeopleAlt, "Role Management", false) {
-                viewModel.loadRoles(); dialog = SettingsDialog.ROLES
-            })
+            add(SettingsItem(Icons.Default.Palette, "Cooperative Profile", false, onOpenBranding))
+            if (state.isSuperAdmin) {
+                add(SettingsItem(Icons.Default.PeopleAlt, "Role Management", false) {
+                    viewModel.loadRoles(); dialog = SettingsDialog.ROLES
+                })
+            }
             add(SettingsItem(Icons.Default.AccountBalance, "Bank & Cash", true) {
                 viewModel.loadBankAccounts(); dialog = SettingsDialog.BANK_ACCOUNTS
             })
-            add(SettingsItem(Icons.Default.Palette, "Branding", true, onOpenBranding))
+            add(SettingsItem(Icons.Default.Percent, "Savings Interest", false) { dialog = SettingsDialog.SAVINGS_INTEREST })
+            add(SettingsItem(Icons.Default.MoneyOff, "Late Fees", false) { dialog = SettingsDialog.LATE_FEES })
             add(SettingsItem(Icons.Default.Subscriptions, "Subscription", false) { showSubscription = true })
             add(SettingsItem(Icons.Default.CurrencyExchange, "Currency (${currentCurrency.flag} ${currentCurrency.code})", false) { showCurrencyPicker = true })
             if (state.isSuperAdmin) {
                 add(SettingsItem(Icons.Default.AccountBalanceWallet, "Payment Bank Details", false) { showBankDetails = true })
+                add(SettingsItem(Icons.Default.Receipt, "Subscription Requests", false) { showSubscriptionOrders = true })
+                add(SettingsItem(Icons.Default.Sell, "Pricing Plans", false) { showPricingPlans = true })
+                add(SettingsItem(Icons.Default.Business, "Manage Cooperatives", false) { showManageCooperatives = true })
             }
             add(SettingsItem(Icons.Default.Security, "Security", false) { dialog = SettingsDialog.SECURITY })
             add(SettingsItem(Icons.Default.Logout, "Logout", false, onLogout))
@@ -110,44 +142,6 @@ fun AdminSettingsScreen(
     }
 
     when (dialog) {
-        SettingsDialog.COOP_PROFILE -> {
-            val coop = state.cooperative
-            var name by remember(coop) { mutableStateOf(coop?.name ?: "") }
-            var address by remember(coop) { mutableStateOf(coop?.address ?: "") }
-            var phone by remember(coop) { mutableStateOf(coop?.phone ?: "") }
-            var email by remember(coop) { mutableStateOf(coop?.email ?: "") }
-            var whatsapp by remember(coop) { mutableStateOf(coop?.whatsappNumber ?: "") }
-            var hasSubmitted by remember { mutableStateOf(false) }
-            val justSaved = !state.isSavingProfile && state.profileError == null
-            LaunchedEffect(justSaved) { if (hasSubmitted && justSaved) dialog = SettingsDialog.NONE }
-
-            AlertDialog(
-                onDismissRequest = { dialog = SettingsDialog.NONE; viewModel.clearProfileError() },
-                title = { Text("Cooperative Profile") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        state.profileError?.let { Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall) }
-                        CooperativeLogo(coop?.name, coop?.logoUrl, coop?.primaryColor, size = 56.dp)
-                        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = whatsapp, onValueChange = { whatsapp = it }, label = { Text("WhatsApp Number") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = { hasSubmitted = true; viewModel.updateCooperativeProfile(name, address, phone, email, whatsapp, coop?.logoUrl ?: "") },
-                        enabled = name.isNotBlank() && !state.isSavingProfile,
-                    ) {
-                        if (state.isSavingProfile) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Save")
-                    }
-                },
-                dismissButton = { TextButton(onClick = { dialog = SettingsDialog.NONE }) { Text("Cancel") } },
-            )
-        }
         SettingsDialog.BANK_ACCOUNTS -> {
             var showAddAccount by remember { mutableStateOf(false) }
             AlertDialog(
@@ -161,11 +155,8 @@ fun AdminSettingsScreen(
                         } else if (state.bankAccounts.isEmpty()) {
                             Text("No bank accounts on file yet.")
                         } else {
-                            state.bankAccounts.forEach { acc ->
-                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                    Text(acc.bank_name ?: "—", fontWeight = FontWeight.SemiBold)
-                                    Text("${acc.account_name ?: "—"} · ${acc.account_number ?: "—"}", style = MaterialTheme.typography.bodySmall)
-                                }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                state.bankAccounts.forEach { acc -> BankAccountCard(acc) }
                             }
                         }
                         if (showAddAccount) {
@@ -178,12 +169,16 @@ fun AdminSettingsScreen(
 
                             HorizontalDivider()
                             OutlinedTextField(value = bankName, onValueChange = { bankName = it }, label = { Text("Bank Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(value = accNumber, onValueChange = { accNumber = it }, label = { Text("Account Number") }, singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(
+                                value = accNumber,
+                                onValueChange = { accNumber = it.filter { c -> c.isDigit() }.take(10) },
+                                label = { Text("Account Number") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(),
+                            )
                             OutlinedTextField(value = accName, onValueChange = { accName = it }, label = { Text("Account Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             Button(
                                 onClick = { hasSubmitted = true; viewModel.addBankAccount(bankName, accNumber, accName) },
-                                enabled = bankName.isNotBlank() && accNumber.isNotBlank() && accName.isNotBlank() && !state.isSavingBankAccount,
+                                enabled = bankName.isNotBlank() && accNumber.length == 10 && accName.isNotBlank() && !state.isSavingBankAccount,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 if (state.isSavingBankAccount) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Add Account")
@@ -209,23 +204,23 @@ fun AdminSettingsScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         state.roles.forEach { role ->
-                            var menuExpanded by remember(role.user_id) { mutableStateOf(false) }
-                            val userId = role.user_id
+                            var menuExpanded by remember(role.userId) { mutableStateOf(false) }
+                            val userId = role.userId
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text((userId ?: "—").take(12), style = MaterialTheme.typography.bodySmall)
+                                Text(role.memberName ?: "Unknown member", style = MaterialTheme.typography.bodySmall)
                                 Box {
                                     OutlinedButton(
                                         onClick = { menuExpanded = true },
-                                        enabled = userId != null && state.updatingUserId != userId,
+                                        enabled = state.updatingUserId != userId,
                                     ) {
                                         if (state.updatingUserId == userId) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                                        else Text(role.role ?: "—", style = MaterialTheme.typography.bodySmall)
+                                        else Text(roleDisplayName(role.role), style = MaterialTheme.typography.bodySmall)
                                     }
                                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                         ASSIGNABLE_ROLES.forEach { r ->
-                                            DropdownMenuItem(text = { Text(r) }, onClick = {
+                                            DropdownMenuItem(text = { Text(roleDisplayName(r)) }, onClick = {
                                                 menuExpanded = false
-                                                userId?.let { viewModel.changeRole(it, r) }
+                                                viewModel.changeRole(userId, r)
                                             })
                                         }
                                     }
@@ -237,6 +232,127 @@ fun AdminSettingsScreen(
             },
             confirmButton = { TextButton(onClick = { dialog = SettingsDialog.NONE }) { Text("Close") } },
         )
+        SettingsDialog.SAVINGS_INTEREST -> {
+            val coop = state.cooperative
+            var rate by remember(coop) { mutableStateOf(coop?.savingsInterestRate?.toString() ?: "0") }
+            var method by remember(coop) { mutableStateOf(coop?.savingsInterestMethod ?: SavingsInterestMethod.SIMPLE_ESTIMATE) }
+
+            AlertDialog(
+                onDismissRequest = { dialog = SettingsDialog.NONE; viewModel.clearInterestError() },
+                title = { Text("Savings Interest") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        state.interestError?.let { Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall) }
+                        Text(
+                            "Interest paid to members on their savings/contribution balance.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        )
+                        OutlinedTextField(
+                            value = rate, onValueChange = { rate = it.filter { c -> c.isDigit() || c == '.' } },
+                            label = { Text("Annual Rate (%)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text("Method", style = MaterialTheme.typography.labelMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { method = SavingsInterestMethod.SIMPLE_ESTIMATE }) {
+                            RadioButton(selected = method == SavingsInterestMethod.SIMPLE_ESTIMATE, onClick = { method = SavingsInterestMethod.SIMPLE_ESTIMATE })
+                            Column {
+                                Text("Simple Estimate", style = MaterialTheme.typography.bodyMedium)
+                                Text("Shown to members as an estimate — no money moves.", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { method = SavingsInterestMethod.PERIODIC_CREDIT }) {
+                            RadioButton(selected = method == SavingsInterestMethod.PERIODIC_CREDIT, onClick = { method = SavingsInterestMethod.PERIODIC_CREDIT })
+                            Column {
+                                Text("Periodic Credit", style = MaterialTheme.typography.bodyMedium)
+                                Text("You manually credit accrued interest as a real transaction whenever you choose.", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                            }
+                        }
+
+                        if (coop?.savingsInterestMethod == SavingsInterestMethod.PERIODIC_CREDIT) {
+                            HorizontalDivider()
+                            Text(
+                                "Last credited: ${coop.savingsInterestLastCreditedAt?.take(10) ?: "never"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Button(
+                                onClick = { viewModel.applyInterestNow() },
+                                enabled = !state.isApplyingInterest,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = CoopGreen),
+                            ) {
+                                if (state.isApplyingInterest) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Apply Interest Now")
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { rate.toDoubleOrNull()?.let { viewModel.updateSavingsInterestSettings(it, method) } },
+                        enabled = rate.toDoubleOrNull() != null && !state.isSavingInterestSettings,
+                    ) {
+                        if (state.isSavingInterestSettings) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Save")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { dialog = SettingsDialog.NONE }) { Text("Close") } },
+            )
+        }
+        SettingsDialog.LATE_FEES -> {
+            val coop = state.cooperative
+            var rate by remember(coop) { mutableStateOf(coop?.lateFeeRate?.toString() ?: "0") }
+            var graceDays by remember(coop) { mutableStateOf(coop?.lateFeeGraceDays?.toString() ?: "0") }
+
+            AlertDialog(
+                onDismissRequest = { dialog = SettingsDialog.NONE; viewModel.clearLateFeeError() },
+                title = { Text("Late Fees") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        state.lateFeeError?.let { Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall) }
+                        Text(
+                            "A penalty charged on overdue loans, as a percentage of the outstanding balance.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        )
+                        OutlinedTextField(
+                            value = rate, onValueChange = { rate = it.filter { c -> c.isDigit() || c == '.' } },
+                            label = { Text("Fee Rate (%)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = graceDays, onValueChange = { graceDays = it.filter { c -> c.isDigit() } },
+                            label = { Text("Grace Period (days)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        HorizontalDivider()
+                        Text(
+                            "Scans every overdue loan past its due date + grace period and charges each one once.",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        )
+                        Button(
+                            onClick = { viewModel.applyLateFeesNow() },
+                            enabled = !state.isApplyingLateFees,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = CoopGreen),
+                        ) {
+                            if (state.isApplyingLateFees) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Apply Late Fees Now")
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { rate.toDoubleOrNull()?.let { r -> viewModel.updateLateFeeSettings(r, graceDays.toIntOrNull() ?: 0) } },
+                        enabled = rate.toDoubleOrNull() != null && !state.isSavingLateFeeSettings,
+                    ) {
+                        if (state.isSavingLateFeeSettings) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Save")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { dialog = SettingsDialog.NONE }) { Text("Close") } },
+            )
+        }
         SettingsDialog.SECURITY -> {
             val autoLogoutEnabled by viewModel.autoLogoutEnabled.collectAsState()
             val requireBiometric by viewModel.requireBiometric.collectAsState()
@@ -286,6 +402,18 @@ fun AdminSettingsScreen(
             onSelect = { config -> viewModel.changeCurrency(config); showCurrencyPicker = false },
             onDismiss = { showCurrencyPicker = false },
         )
+    }
+}
+
+@Composable
+private fun BankAccountCard(account: BankAccountRow) {
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.padding(16.dp)) {
+            Text(account.bank_name ?: "—", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(account.account_name ?: "—", style = MaterialTheme.typography.bodyMedium)
+            Text(account.account_number ?: "—", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = CoopGold)
+        }
     }
 }
 

@@ -227,7 +227,12 @@ fun MemberShell(
                     ) { backStackEntry ->
                         LoansScreen(autoOpenDialog = backStackEntry.arguments?.getBoolean("autoOpen") == true)
                     }
-                    composable("transactions")   { TransactionsScreen() }
+                    composable("transactions")   {
+                        TransactionsScreen(
+                            onNavigateToStandingOrders = { nav.navigate("standing_orders") },
+                            onNavigateToDisputes       = { nav.navigate("disputes") },
+                        )
+                    }
                     composable("profile")        {
                         ProfileScreen(
                             onLogout,

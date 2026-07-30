@@ -45,11 +45,13 @@ class KycViewModel @Inject constructor(
     // this, while kycData.idDocumentUrl (shown on screen) is always a
     // resolved signed URL, never a raw path.
     private var pendingIdDocumentPath: String? = null
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     init { loadKycData() }
 
     fun loadKycData() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
                 val member = memberRepository.findCurrentMember()

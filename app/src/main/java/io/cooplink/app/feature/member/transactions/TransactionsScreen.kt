@@ -4,7 +4,6 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Receipt
@@ -16,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.format
@@ -24,16 +22,23 @@ import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.feature.member.overview.TransactionRow
 import io.cooplink.app.ui.theme.*
 
-private val FREQUENCIES = listOf("Weekly", "Monthly", "Quarterly")
-private val DISPUTE_REASONS = listOf("Wrong amount", "Unauthorized", "Not received", "Other")
-
 @Composable
-fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
+fun TransactionsScreen(
+    viewModel: TransactionsViewModel = hiltViewModel(),
+    // Creating a standing order/dispute is handled entirely by the dedicated
+    // screens (feature/member/standingorders, feature/member/disputes) — this
+    // screen used to have its own local copies of both dialogs, but they sent
+    // field shapes the DB rejects (free-text `purpose` instead of the
+    // contribution/repayment enum the standing_orders_purpose_check
+    // constraint requires; no `subject` for disputes, which is NOT NULL), so
+    // every submission through here silently failed. Routing to the working
+    // screens instead of maintaining a second, divergent implementation.
+    onNavigateToStandingOrders: () -> Unit = {},
+    onNavigateToDisputes: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsState()
     val currency = currentCurrency()
     val context = LocalContext.current
-    var showNewOrderDialog by remember { mutableStateOf(false) }
-    var showRaiseDisputeDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.snackbarMessage) {
         state.snackbarMessage?.let {
@@ -76,9 +81,15 @@ fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Standing Orders", style = MaterialTheme.typography.titleMedium,
                                 color = Color.White, fontWeight = FontWeight.SemiBold)
-                            TextButton(onClick = { showNewOrderDialog = true }) { Text("+ New", color = MemberGold) }
+                            TextButton(onClick = onNavigateToStandingOrders) { Text("+ New", color = MemberGold) }
                         }
-                        if (state.standingOrders.isEmpty()) {
+                        if (state.isLoading) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Loading…", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.35f))
+                        } else if (state.standingOrdersLoadFailed) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Couldn't load standing orders. Pull down to retry.", style = MaterialTheme.typography.bodySmall, color = CoopError)
+                        } else if (state.standingOrders.isEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Text("No standing orders yet", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.45f))
                         } else {
@@ -105,9 +116,15 @@ fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Disputes", style = MaterialTheme.typography.titleMedium,
                                 color = Color.White, fontWeight = FontWeight.SemiBold)
-                            TextButton(onClick = { showRaiseDisputeDialog = true }) { Text("Raise dispute", color = MemberGold) }
+                            TextButton(onClick = onNavigateToDisputes) { Text("Raise dispute", color = MemberGold) }
                         }
-                        if (state.disputes.isEmpty()) {
+                        if (state.isLoading) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Loading…", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.35f))
+                        } else if (state.disputesLoadFailed) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Couldn't load disputes. Pull down to retry.", style = MaterialTheme.typography.bodySmall, color = CoopError)
+                        } else if (state.disputes.isEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Text("No disputes raised", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.45f))
                         } else {
@@ -126,7 +143,9 @@ fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
                 }
             }
 
-            if (state.transactions.isEmpty() && !state.isLoading) {
+            if (state.isLoading && state.transactions.isEmpty()) {
+                items(3) { SkeletonCard() }
+            } else if (state.transactions.isEmpty() && !state.isLoading) {
                 item {
                     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CoopDarkSurface),
                         shape = MaterialTheme.shapes.large) {
@@ -146,159 +165,4 @@ fun TransactionsScreen(viewModel: TransactionsViewModel = hiltViewModel()) {
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
-
-    if (showNewOrderDialog) {
-        NewStandingOrderDialog(
-            isSubmitting = state.isSubmittingOrder,
-            error        = state.orderError,
-            onDismiss    = { showNewOrderDialog = false; viewModel.clearOrderError() },
-            onSubmit     = { amount, freq, date, purpose -> viewModel.createStandingOrder(amount, freq, date, purpose) },
-            justSubmitted = !state.isSubmittingOrder && state.orderError == null,
-            onSubmitted  = { showNewOrderDialog = false },
-        )
-    }
-
-    if (showRaiseDisputeDialog) {
-        RaiseDisputeDialog(
-            isSubmitting = state.isSubmittingDispute,
-            error        = state.disputeError,
-            onDismiss    = { showRaiseDisputeDialog = false; viewModel.clearDisputeError() },
-            onSubmit     = { category, description -> viewModel.raiseDispute(category, description) },
-            justSubmitted = !state.isSubmittingDispute && state.disputeError == null,
-            onSubmitted  = { showRaiseDisputeDialog = false },
-        )
-    }
 }
-
-@Composable
-private fun NewStandingOrderDialog(
-    isSubmitting: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onSubmit: (amount: Double, frequency: String, startDate: String, purpose: String) -> Unit,
-    justSubmitted: Boolean,
-    onSubmitted: () -> Unit,
-) {
-    var amount by remember { mutableStateOf("") }
-    var frequency by remember { mutableStateOf(FREQUENCIES.first()) }
-    var freqMenuExpanded by remember { mutableStateOf(false) }
-    var startDate by remember { mutableStateOf("") }
-    var purpose by remember { mutableStateOf("") }
-    var hasSubmitted by remember { mutableStateOf(false) }
-    val parsed = amount.toDoubleOrNull()
-
-    LaunchedEffect(justSubmitted) { if (hasSubmitted && justSubmitted) onSubmitted() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor   = CoopDarkSurface,
-        title = { Text("New Standing Order", color = Color.White, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                error?.let { Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall) }
-
-                OutlinedTextField(
-                    value = amount, onValueChange = { amount = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Amount (₦)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true, modifier = Modifier.fillMaxWidth(), colors = dialogFieldColors(),
-                )
-
-                ExposedDropdownMenuBox(expanded = freqMenuExpanded, onExpandedChange = { freqMenuExpanded = it }) {
-                    OutlinedTextField(
-                        value = frequency, onValueChange = {}, readOnly = true, label = { Text("Frequency") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = freqMenuExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), colors = dialogFieldColors(),
-                    )
-                    ExposedDropdownMenu(expanded = freqMenuExpanded, onDismissRequest = { freqMenuExpanded = false }) {
-                        FREQUENCIES.forEach { f -> DropdownMenuItem(text = { Text(f) }, onClick = { frequency = f; freqMenuExpanded = false }) }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = startDate, onValueChange = { startDate = it },
-                    label = { Text("Start Date (YYYY-MM-DD)") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth(), colors = dialogFieldColors(),
-                )
-                OutlinedTextField(
-                    value = purpose, onValueChange = { purpose = it },
-                    label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), colors = dialogFieldColors(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { hasSubmitted = true; parsed?.let { onSubmit(it, frequency, startDate, purpose) } },
-                enabled = parsed != null && parsed > 0 && startDate.isNotBlank() && !isSubmitting,
-                colors  = ButtonDefaults.buttonColors(containerColor = MemberGold),
-            ) {
-                if (isSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CoopNavyDeep)
-                else Text("Create", color = CoopNavyDeep, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Color.White.copy(.5f)) } },
-    )
-}
-
-@Composable
-private fun RaiseDisputeDialog(
-    isSubmitting: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onSubmit: (category: String, description: String) -> Unit,
-    justSubmitted: Boolean,
-    onSubmitted: () -> Unit,
-) {
-    var category by remember { mutableStateOf(DISPUTE_REASONS.first()) }
-    var menuExpanded by remember { mutableStateOf(false) }
-    var description by remember { mutableStateOf("") }
-    var hasSubmitted by remember { mutableStateOf(false) }
-
-    LaunchedEffect(justSubmitted) { if (hasSubmitted && justSubmitted) onSubmitted() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor   = CoopDarkSurface,
-        title = { Text("Raise a Dispute", color = Color.White, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                error?.let { Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall) }
-
-                ExposedDropdownMenuBox(expanded = menuExpanded, onExpandedChange = { menuExpanded = it }) {
-                    OutlinedTextField(
-                        value = category, onValueChange = {}, readOnly = true, label = { Text("Reason") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(), colors = dialogFieldColors(),
-                    )
-                    ExposedDropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DISPUTE_REASONS.forEach { r -> DropdownMenuItem(text = { Text(r) }, onClick = { category = r; menuExpanded = false }) }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = description, onValueChange = { description = it },
-                    label = { Text("Describe what happened (include transaction reference or date if known)") },
-                    minLines = 3, modifier = Modifier.fillMaxWidth(), colors = dialogFieldColors(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { hasSubmitted = true; onSubmit(category, description) },
-                enabled = description.isNotBlank() && !isSubmitting,
-                colors  = ButtonDefaults.buttonColors(containerColor = MemberGold),
-            ) {
-                if (isSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CoopNavyDeep)
-                else Text("Submit", color = CoopNavyDeep, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Color.White.copy(.5f)) } },
-    )
-}
-
-@Composable
-private fun dialogFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor   = MemberGold,   unfocusedBorderColor  = Color.White.copy(.22f),
-    focusedLabelColor    = MemberGold,   unfocusedLabelColor   = Color.White.copy(.4f),
-    focusedTextColor     = Color.White,  unfocusedTextColor    = Color.White,
-    cursorColor          = MemberGold,
-)

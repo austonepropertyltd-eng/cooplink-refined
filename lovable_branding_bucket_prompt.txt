@@ -1,0 +1,12 @@
+I need a Supabase Storage bucket created for cooperative logo uploads — it's referenced by the Android app but doesn't exist yet, so every upload attempt fails with "Bucket not found."
+
+Context:
+- The app uploads a cooperative's logo to path `{cooperativeId}/logo.{ext}` in a bucket named `branding`.
+- Unlike the `kyc-documents` and `avatars` buckets (which are private, accessed only via signed URLs from the `sign-urls` edge function), this one needs to be a **public** bucket — the app calls Storage's public URL helper directly (`storage.from("branding").publicUrl(path)`), not a signed URL. Logos are meant to be freely viewable (they're shown in the member app header, branding previews, etc.), so this is intentional, not an oversight.
+
+Please:
+1. Create the `branding` bucket in Supabase Storage, set to public.
+2. Add a write policy: a cooperative admin or super admin can upload/update objects only under a path prefix matching their own cooperative — i.e. the first path segment must equal a `cooperative_id` they have an admin role for (same shape of check as the existing `kyc-documents` owner/role policy, just scoped to cooperative rather than user, and public-read instead of private).
+3. Add a public read policy (or confirm the bucket-level "public" setting already covers reads — whichever is your normal pattern for public buckets here).
+
+Please don't change the Android client — this is backend-only (Storage bucket + policies). Report back what you created (bucket settings, policy names) so I can verify against the app.

@@ -212,15 +212,19 @@ fun AdminMembersScreen(
             resolvedAvatarUrl = avatarUrls[member.id],
             onDismiss       = { selectedMember = null },
             onEdit          = { Toast.makeText(context, "Edit Member coming soon", Toast.LENGTH_SHORT).show() },
-            onSendSms       = { Toast.makeText(context, "Send SMS coming soon", Toast.LENGTH_SHORT).show() },
+            // Reuses the same working bulk-SMS mechanism, scoped to just this
+            // one member, rather than a second "coming soon" dead end next to
+            // a bulk SMS feature that already actually works.
+            onSendSms       = { selectedIds = setOf(member.id); selectedMember = null; showBulkSmsDialog = true },
         )
     }
 
     if (showBulkSmsDialog) {
         BulkSmsDialog(
-            isSending = state.isBulkProcessing,
-            onDismiss = { showBulkSmsDialog = false },
-            onSend    = { message -> viewModel.sendBulkSms(selectedIds, message); showBulkSmsDialog = false; selectedIds = emptySet() },
+            memberCount = selectedIds.size,
+            isSending   = state.isBulkProcessing,
+            onDismiss   = { showBulkSmsDialog = false },
+            onSend      = { message -> viewModel.sendBulkSms(selectedIds, message); showBulkSmsDialog = false; selectedIds = emptySet() },
         )
     }
 
@@ -247,24 +251,38 @@ fun AdminMembersScreen(
 }
 
 @Composable
-private fun BulkSmsDialog(isSending: Boolean, onDismiss: () -> Unit, onSend: (String) -> Unit) {
+private fun BulkSmsDialog(memberCount: Int, isSending: Boolean, onDismiss: () -> Unit, onSend: (String) -> Unit) {
     var message by remember { mutableStateOf("") }
+    var confirming by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Send Bulk SMS") },
+        title = { Text("Send SMS to $memberCount Member(s)") },
         text = {
-            OutlinedTextField(
-                value = message, onValueChange = { message = it },
-                label = { Text("Message") }, minLines = 3, modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onSend(message) }, enabled = message.isNotBlank() && !isSending,
-                colors = ButtonDefaults.buttonColors(containerColor = CoopTeal)) {
-                if (isSending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Send")
+            Column {
+                if (confirming) {
+                    Text(
+                        "This will send a real text message to $memberCount member(s) now. Send it?",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = message, onValueChange = { message = it },
+                        label = { Text("Message") }, minLines = 3, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            Button(
+                onClick = { if (confirming) onSend(message) else confirming = true },
+                enabled = message.isNotBlank() && !isSending,
+                colors = ButtonDefaults.buttonColors(containerColor = if (confirming) CoopError else CoopTeal),
+            ) {
+                if (isSending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text(if (confirming) "Send Now" else "Continue")
+            }
+        },
+        dismissButton = { TextButton(onClick = { if (confirming) confirming = false else onDismiss() }) { Text(if (confirming) "Back" else "Cancel") } },
     )
 }
 

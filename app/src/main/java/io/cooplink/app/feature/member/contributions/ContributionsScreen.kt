@@ -29,6 +29,7 @@ fun ContributionsScreen(
     viewModel: ContributionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val currency = currentCurrency()
     var showAmountDialog by remember { mutableStateOf(autoOpenDialog) }
     var pendingAmount by remember { mutableStateOf<Double?>(null) }
     var showConfetti by remember { mutableStateOf(false) }
@@ -98,6 +99,50 @@ fun ContributionsScreen(
                                 if (state.isGeneratingAccount) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 else Text("Generate account")
                             }
+                        }
+                    }
+                }
+            }
+
+            if (state.bankAccounts.isNotEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+                        colors = CardDefaults.cardColors(containerColor = CoopDarkSurface)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("Or Pay by Bank Transfer", style = MaterialTheme.typography.titleMedium,
+                                color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Transfer directly to your cooperative's account:",
+                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.55f))
+                            state.bankAccounts.forEachIndexed { index, account ->
+                                Spacer(Modifier.height(12.dp))
+                                if (index > 0) HorizontalDivider(color = Color.White.copy(.1f))
+                                Text(account.bankName ?: "—", color = Color.White.copy(.8f), style = MaterialTheme.typography.bodyMedium)
+                                Text(account.accountNumber ?: "—", color = MemberGold, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(account.accountName ?: "—", color = Color.White.copy(.6f), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+            state.estimatedAnnualInterest?.let { estimate ->
+                item {
+                    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+                        colors = CardDefaults.cardColors(containerColor = CoopDarkSurface)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("Estimated Interest", style = MaterialTheme.typography.titleMedium,
+                                color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                currency.format(estimate) + " / year",
+                                style = MaterialTheme.typography.headlineSmall, color = MemberGold, fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Projected at your cooperative's current savings rate — an estimate, not a guaranteed or credited amount.",
+                                style = MaterialTheme.typography.labelSmall, color = Color.White.copy(.45f),
+                            )
                         }
                     }
                 }
