@@ -25,6 +25,9 @@ private data class BrandingUpdateRequest(
     val primary_color: String?,
     val secondary_color: String?,
     val whatsapp_number: String?,
+    val address: String?,
+    val phone: String?,
+    val email: String?,
 )
 
 data class AdminBrandingUiState(
@@ -60,9 +63,6 @@ class AdminBrandingViewModel @Inject constructor(
 
     fun clearSnackbar() { _state.value = _state.value.copy(snackbarMessage = null) }
 
-    // "avatars"-style Storage buckets were already confirmed absent elsewhere
-    // in this app (KYC docs, profile photos) — this fails the same honest way
-    // rather than pretending the upload succeeded.
     fun uploadLogo(bytes: ByteArray, extension: String, onResult: (url: String?) -> Unit) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isUploadingLogo = true)
@@ -84,7 +84,10 @@ class AdminBrandingViewModel @Inject constructor(
         }
     }
 
-    fun save(name: String, logoUrl: String, primaryColor: String, secondaryColor: String, whatsapp: String) {
+    fun save(
+        name: String, logoUrl: String, primaryColor: String, secondaryColor: String, whatsapp: String,
+        address: String, phone: String, email: String,
+    ) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isSaving = true, error = null)
             try {
@@ -98,6 +101,9 @@ class AdminBrandingViewModel @Inject constructor(
                         primary_color   = primaryColor.ifBlank { null },
                         secondary_color = secondaryColor.ifBlank { null },
                         whatsapp_number = whatsapp.ifBlank { null },
+                        address         = address.ifBlank { null },
+                        phone           = phone.ifBlank { null },
+                        email           = email.ifBlank { null },
                     ),
                 ) { filter { eq("id", coopId) } }
 
@@ -105,7 +111,15 @@ class AdminBrandingViewModel @Inject constructor(
                 _state.value = _state.value.copy(isSaving = false, cooperative = coop, snackbarMessage = "Branding saved")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save branding", e)
-                _state.value = _state.value.copy(isSaving = false, error = "Could not save your changes. Please try again.")
+                // The screen only ever reads snackbarMessage (matching
+                // uploadLogo's failure path above) — `error` alone was never
+                // surfaced anywhere, so a failed save just stopped the
+                // spinner with no indication anything went wrong.
+                _state.value = _state.value.copy(
+                    isSaving = false,
+                    error = "Could not save your changes. Please try again.",
+                    snackbarMessage = "Could not save your changes. Please try again.",
+                )
             }
         }
     }

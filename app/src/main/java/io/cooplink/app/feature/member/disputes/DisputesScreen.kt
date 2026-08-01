@@ -62,6 +62,19 @@ fun DisputesScreen(
                     }
                 }
 
+                if (state.isShowingStaleCache) {
+                    item {
+                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MemberGold.copy(alpha = 0.12f))) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Error, null, tint = MemberGold)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Showing saved data — couldn't refresh. Pull down to try again.",
+                                    color = Color.White, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+
                 if (state.disputes.isEmpty() && !state.isLoading) {
                     item {
                         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CoopDarkSurface),

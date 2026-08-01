@@ -53,12 +53,19 @@ class MemberOverviewViewModel @Inject constructor(
     private val _state = MutableStateFlow(OverviewUiState())
     val state: StateFlow<OverviewUiState> = _state.asStateFlow()
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     init { loadData() }
 
     fun refresh() = loadData()
 
     private fun loadData() {
-        viewModelScope.launch {
+        // Cancel any load already in flight — otherwise a double pull-to-refresh
+        // (or a refresh() while init{}'s first load hasn't finished) races two
+        // concurrent loads, and whichever happens to finish last wins the final
+        // state write even if it started first and is now stale.
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
 
             // Instant paint from the local cache (if any) while the fresh
@@ -73,7 +80,7 @@ class MemberOverviewViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         member             = cachedMember.toDomain(),
                         recentTransactions = cachedTransactions.map { it.toDomain() },
-                        activeLoansCount   = cachedLoans.count { it.status == "disbursed" || it.status == "repaying" },
+                        activeLoansCount   = cachedLoans.count { it.status == "approved" || it.status == "disbursed" || it.status == "repaying" },
                     )
                 }.onFailure { Log.w(TAG, "Failed to read overview cache", it) }
             }
@@ -83,8 +90,16 @@ class MemberOverviewViewModel @Inject constructor(
                     val uid = supabase.auth.currentSessionOrNull()?.user?.id
                         ?: throw IllegalStateException("Not authenticated")
 
+                    // A null member here isn't recoverable by falling back to
+                    // the auth uid — transactions/loans/share_capital are all
+                    // keyed by members.id, not the auth uid, so that fallback
+                    // would just query nothing, return empty for everything,
+                    // and land on a "successful" empty state indistinguishable
+                    // from a genuinely new account when the real problem is a
+                    // broken members-row link.
                     val member = memberRepository.findCurrentMember()
-                    val memberId = member?.id ?: uid
+                        ?: throw IllegalStateException("Could not determine your member record")
+                    val memberId = member.id
 
                     // These three only depend on memberId (already resolved above)
                     // and not on each other — run them concurrently instead of
@@ -109,6 +124,7 @@ class MemberOverviewViewModel @Inject constructor(
                                         filter {
                                             eq("member_id", memberId)
                                             or {
+                                                eq("status", "approved")
                                                 eq("status", "disbursed")
                                                 eq("status", "repaying")
                                             }

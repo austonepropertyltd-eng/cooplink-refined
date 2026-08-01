@@ -27,8 +27,11 @@ private data class NewNotificationRequest(
     val cooperative_id: String?,
     val title: String,
     val message: String,
-    val type: String = "admin_broadcast",
-    val is_read: Boolean = false,
+    // No defaults — see NewRepaymentRequest.type in AdminRepaymentsViewModel
+    // for why a defaulted property is silently dropped from the request even
+    // when the call site passes exactly that value.
+    val type: String,
+    val is_read: Boolean,
 )
 
 @Serializable
@@ -93,7 +96,14 @@ class AdminNotificationsViewModel @Inject constructor(
 
                 targets.forEach { userId ->
                     supabase.db["notifications"].insert(
-                        NewNotificationRequest(user_id = userId, cooperative_id = coopId, title = s.title, message = s.message),
+                        // type/is_read must be passed explicitly — kotlinx.serialization
+                        // doesn't encode a property still at its default value,
+                        // silently dropping it from the request (same pattern
+                        // confirmed live in AdminRepaymentsViewModel).
+                        NewNotificationRequest(
+                            user_id = userId, cooperative_id = coopId, title = s.title, message = s.message,
+                            type = "admin_broadcast", is_read = false,
+                        ),
                     )
                 }
                 _state.value = _state.value.copy(

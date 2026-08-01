@@ -1,6 +1,7 @@
 package io.cooplink.app.core.data
 
 import android.util.Log
+import io.cooplink.app.core.domain.CooperativeBankAccount
 import io.cooplink.app.core.domain.Member
 import io.cooplink.app.core.domain.MemberDetails
 import io.cooplink.app.core.domain.Profile
@@ -145,4 +146,13 @@ class MemberRepository @Inject constructor(
             )
         }
     }.onFailure { Log.w(TAG, "fetchMembersForCooperative failed", it) }.getOrDefault(emptyList())
+
+    /** The cooperative's own bank account(s) — shown to members who want to
+     * pay a contribution/repayment by transfer. Read-only; adding/editing
+     * accounts is admin-only (see AdminSettingsViewModel.addBankAccount). */
+    suspend fun fetchCooperativeBankAccounts(cooperativeId: String): List<CooperativeBankAccount> = runCatching {
+        supabase.db["cooperative_bank_accounts"]
+            .select { filter { eq("cooperative_id", cooperativeId) } }
+            .decodeList<CooperativeBankAccount>()
+    }.onFailure { Log.w(TAG, "fetchCooperativeBankAccounts failed", it) }.getOrDefault(emptyList())
 }

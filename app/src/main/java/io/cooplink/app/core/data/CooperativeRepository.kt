@@ -14,9 +14,10 @@ private const val TAG = "CooperativeRepository"
 
 // get_member_cooperative(p_user_id) returns a lean subset of `cooperatives`
 // (confirmed via schema probing: cooperative_id, name, logo_url,
-// whatsapp_number, currency, primary_color) — enough for shell branding, but
-// missing fields (slug, address, phone, email, secondary_color) that admin
-// screens editing the full record still need via fetchCooperative(id).
+// whatsapp_number, currency, primary_color, organization_type) — enough for
+// shell branding, but missing fields (slug, address, phone, email,
+// secondary_color) that admin screens editing the full record still need via
+// fetchCooperative(id).
 @Serializable
 private data class MemberCooperativeRow(
     @SerialName("cooperative_id")  val cooperativeId: String?  = null,
@@ -25,6 +26,7 @@ private data class MemberCooperativeRow(
     @SerialName("whatsapp_number") val whatsappNumber: String? = null,
     val currency: String?                                      = null,
     @SerialName("primary_color")   val primaryColor: String?   = null,
+    @SerialName("organization_type") val organizationType: String? = null,
 )
 
 @Singleton
@@ -36,6 +38,14 @@ class CooperativeRepository @Inject constructor(
         Log.d(TAG, "cooperatives raw response for $cooperativeId: ${result.data}")
         result.decodeSingleOrNull<Cooperative>()
     }.onFailure { Log.w(TAG, "Failed to fetch cooperative $cooperativeId", it) }.getOrNull()
+
+    /** Every cooperative on the platform — for the super-admin cooperative
+     * switcher only. An empty result for a real super admin account means
+     * RLS isn't granting them read access to other cooperatives' rows, which
+     * would need a backend fix, not a client one. */
+    suspend fun fetchAllCooperatives(): List<Cooperative> = runCatching {
+        supabase.db["cooperatives"].select().decodeList<Cooperative>()
+    }.onFailure { Log.w(TAG, "Failed to fetch all cooperatives", it) }.getOrDefault(emptyList())
 
     /** Single-RPC-call cooperative lookup for the signed-in user — meant for
      * shell branding (name/logo/color), which doesn't need the full record.
@@ -51,12 +61,13 @@ class CooperativeRepository @Inject constructor(
         val row = result.decodeList<MemberCooperativeRow>().firstOrNull() ?: return@runCatching null
         val id = row.cooperativeId ?: return@runCatching null
         Cooperative(
-            id              = id,
-            name            = row.name,
-            whatsappNumber  = row.whatsappNumber,
-            currency        = row.currency ?: "NGN",
-            logoUrl         = row.logoUrl,
-            primaryColor    = row.primaryColor,
+            id               = id,
+            name             = row.name,
+            whatsappNumber   = row.whatsappNumber,
+            currency         = row.currency ?: "NGN",
+            logoUrl          = row.logoUrl,
+            primaryColor     = row.primaryColor,
+            organizationType = row.organizationType,
         )
     }.onFailure { Log.w(TAG, "get_member_cooperative RPC failed for $userId", it) }.getOrNull()
 }
