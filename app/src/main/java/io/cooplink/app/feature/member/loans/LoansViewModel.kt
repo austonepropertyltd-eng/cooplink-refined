@@ -11,6 +11,14 @@ import io.cooplink.app.core.domain.LoanStatus
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.util.retrying
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,7 +80,12 @@ class LoansViewModel @Inject constructor(
     private val _state = MutableStateFlow(LoansUiState())
     val state: StateFlow<LoansUiState> = _state.asStateFlow()
 
-    init { load() }
+    private var realtimeChannel: RealtimeChannel? = null
+
+    init {
+        load()
+        observeLoanChanges()
+    }
 
     fun refresh() = load()
 
@@ -165,6 +178,34 @@ class LoansViewModel @Inject constructor(
                 Log.e(TAG, "Failed to load loans", e)
                 _state.value = _state.value.copy(isLoading = false, error = GENERIC_LOAD_ERROR)
             }
+        }
+    }
+
+    // Reflects admin decisions (approval, rejection, disbursement) as soon as
+    // they happen, instead of the member needing to pull to refresh.
+    private fun observeLoanChanges() {
+        viewModelScope.launch {
+            val member = memberRepository.findCurrentMember()
+            val memberId = member?.id ?: supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
+            val channel = supabase.realtime.channel("loans-member-$memberId")
+            realtimeChannel = channel
+            val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "loans"
+                filter("member_id", FilterOperator.EQ, memberId)
+            }
+            channel.subscribe()
+            changes.collect { load() }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // viewModelScope is already cancelled by the time onCleared runs, so
+        // the unsubscribe is fired on a short-lived scope of its own rather
+        // than silently no-oping.
+        val channel = realtimeChannel ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { supabase.realtime.removeChannel(channel) }
         }
     }
 }

@@ -45,6 +45,7 @@ fun AdminSettingsScreen(
     var showSubscriptionOrders by remember { mutableStateOf(false) }
     var showPricingPlans by remember { mutableStateOf(false) }
     var showManageCooperatives by remember { mutableStateOf(false) }
+    var showAppUpdate by remember { mutableStateOf(false) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     val currentCurrency by viewModel.currencyProvider.currency.collectAsState()
 
@@ -91,6 +92,13 @@ fun AdminSettingsScreen(
         return
     }
 
+    if (showAppUpdate) {
+        io.cooplink.app.feature.admin.appupdate.AdminAppUpdateScreen(
+            onBack = { showAppUpdate = false },
+        )
+        return
+    }
+
     PullToRefreshBox(isRefreshing = state.isLoading, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -114,6 +122,7 @@ fun AdminSettingsScreen(
                 add(SettingsItem(Icons.Default.Receipt, "Subscription Requests", false) { showSubscriptionOrders = true })
                 add(SettingsItem(Icons.Default.Sell, "Pricing Plans", false) { showPricingPlans = true })
                 add(SettingsItem(Icons.Default.Business, "Manage Cooperatives", false) { showManageCooperatives = true })
+                add(SettingsItem(Icons.Default.SystemUpdate, "App Updates", false) { showAppUpdate = true })
             }
             add(SettingsItem(Icons.Default.Security, "Security", false) { dialog = SettingsDialog.SECURITY })
             add(SettingsItem(Icons.Default.Logout, "Logout", false, onLogout))
