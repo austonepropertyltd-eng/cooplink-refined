@@ -63,9 +63,6 @@ class AdminBrandingViewModel @Inject constructor(
 
     fun clearSnackbar() { _state.value = _state.value.copy(snackbarMessage = null) }
 
-    // "avatars"-style Storage buckets were already confirmed absent elsewhere
-    // in this app (KYC docs, profile photos) — this fails the same honest way
-    // rather than pretending the upload succeeded.
     fun uploadLogo(bytes: ByteArray, extension: String, onResult: (url: String?) -> Unit) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isUploadingLogo = true)
