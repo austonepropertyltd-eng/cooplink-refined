@@ -64,8 +64,15 @@ class CoopLinkMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         createNotificationChannels(this, getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+        // `message` is accepted alongside `body` because the app's own senders
+        // (e.g. AdminLoansViewModel) post the text under the same key the
+        // notifications table uses — without this fallback a push whose data
+        // payload says `message` would arrive with an empty body.
         val title   = message.notification?.title ?: message.data["title"] ?: "CoopLink"
-        val body    = message.notification?.body  ?: message.data["body"]  ?: ""
+        val body    = message.notification?.body
+            ?: message.data["body"]
+            ?: message.data["message"]
+            ?: ""
         val channel = message.data["channel"] ?: "announcements"
 
         // FCM delivers this on a background thread outside a coroutine scope,

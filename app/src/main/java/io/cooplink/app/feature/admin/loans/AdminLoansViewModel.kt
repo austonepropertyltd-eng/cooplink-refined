@@ -51,6 +51,13 @@ private data class DisbursementResponse(val status: String? = null, val message:
 @Serializable
 private data class LoanRejectUpdate(val status: String, val rejection_reason: String)
 
+// send-push's response envelope. Confirmed live against the deployed function:
+// it answers HTTP 200 even when it delivers nothing (a missing/malformed FCM
+// service-account secret comes back as {"error": "..."} with a 200 status), so
+// the body — never the status code — is the only signal that a push went out.
+@Serializable
+private data class PushResponse(val error: String? = null)
+
 // Records a fee/fine as a real transactions row — see NewRepaymentRequest.type
 // in AdminRepaymentsViewModel for why `type` can't have a default here without
 // silently vanishing from the request.
@@ -180,9 +187,10 @@ class AdminLoansViewModel @Inject constructor(
         }
     }
 
-    // Best-effort — an in-app notification row, not a true push. Real push
-    // delivery (waking a backgrounded/closed app) needs a server-side FCM
-    // send with a secret key, which can't live in this client.
+    // Writes the in-app notification row, then asks the send-push edge
+    // function to deliver a real FCM push so a backgrounded or closed app
+    // still wakes the member. Both calls are fire-and-forget: neither may
+    // block or roll back a loan status change that already succeeded.
     private fun notifyMember(loanId: String, title: String, message: String) {
         val loan = _state.value.rows.find { it.loan.id == loanId }?.loan ?: return
         val userId = membersCache.find { it.id == loan.memberId }?.userId ?: return
@@ -194,6 +202,31 @@ class AdminLoansViewModel @Inject constructor(
                 // confirmed live in AdminRepaymentsViewModel).
                 supabase.db["notifications"].insert(NewNotificationRequest(user_id = userId, title = title, message = message, type = "loans"))
             }.onFailure { Log.w(TAG, "Failed to notify member $userId for loan $loanId", it) }
+
+            // Request field names mirror this backend's other edge functions
+            // (snake_case `user_id`, the same `message`/`channel` keys the
+            // notifications row above uses). They're unconfirmed against
+            // send-push's own source, which isn't visible from this repo, so
+            // the raw body is logged — a contract mismatch shows up in logcat
+            // rather than silently dropping every push.
+            runCatching {
+                val resp = supabase.functions.invoke(
+                    function = "send-push",
+                    body = buildJsonObject {
+                        put("user_id", userId)
+                        put("title", title)
+                        put("message", message)
+                        put("channel", "loans")
+                    },
+                )
+                val rawBody = resp.bodyAsText()
+                val pushError = runCatching { json.decodeFromString<PushResponse>(rawBody) }.getOrNull()?.error
+                if (pushError != null) {
+                    Log.w(TAG, "send-push accepted but did not deliver for $userId (loan $loanId): $pushError")
+                } else {
+                    Log.d(TAG, "send-push raw response for loan $loanId: $rawBody")
+                }
+            }.onFailure { Log.w(TAG, "Failed to send push to $userId for loan $loanId", it) }
         }
     }
 
