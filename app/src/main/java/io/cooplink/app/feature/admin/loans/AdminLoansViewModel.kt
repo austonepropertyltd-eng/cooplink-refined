@@ -88,6 +88,13 @@ private data class LoanPlanPatch(val name: String, val min_amount: Double, val m
 @Serializable
 private data class NewNotificationRequest(
     val user_id: String,
+    // Required by the notifications RLS policy, which checks the row's
+    // cooperative against the admin's own — omitting it (so the column comes
+    // through as NULL) makes every insert fail with "new row violates
+    // row-level security policy". Confirmed on-device: the admin broadcast in
+    // AdminNotificationsViewModel sends this column and succeeds, while this
+    // insert sent user_id/title/message/type only and was rejected every time.
+    val cooperative_id: String?,
     val title: String,
     val message: String,
     // No default — see NewRepaymentRequest.type in AdminRepaymentsViewModel
@@ -195,12 +202,21 @@ class AdminLoansViewModel @Inject constructor(
         val loan = _state.value.rows.find { it.loan.id == loanId }?.loan ?: return
         val userId = membersCache.find { it.id == loan.memberId }?.userId ?: return
         viewModelScope.launch {
+            val coopId = loan.cooperativeId ?: authRepository.currentCooperativeId()
+            if (coopId == null) {
+                Log.w(TAG, "No cooperative for loan $loanId — notification insert will be rejected by RLS")
+            }
             runCatching {
                 // `type` must be passed explicitly — kotlinx.serialization
                 // doesn't encode a property still at its default value,
                 // silently dropping it from the request (same pattern
                 // confirmed live in AdminRepaymentsViewModel).
-                supabase.db["notifications"].insert(NewNotificationRequest(user_id = userId, title = title, message = message, type = "loans"))
+                supabase.db["notifications"].insert(
+                    NewNotificationRequest(
+                        user_id = userId, cooperative_id = coopId,
+                        title = title, message = message, type = "loans",
+                    ),
+                )
             }.onFailure { Log.w(TAG, "Failed to notify member $userId for loan $loanId", it) }
 
             // Request field names mirror this backend's other edge functions
