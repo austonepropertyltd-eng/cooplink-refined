@@ -18,7 +18,15 @@ import javax.inject.Inject
 private const val TAG = "NotificationSettingsVM"
 
 @Serializable
-private data class DeviceTokenInsert(val user_id: String, val token: String, val platform: String = "android")
+private data class DeviceTokenInsert(
+    val user_id: String,
+    val token: String,
+    // No default — kotlinx.serialization runs with encodeDefaults = false, so
+    // a property still sitting at its default is omitted from the request
+    // entirely. As a defaulted property this column was never actually sent,
+    // and every row this path wrote left platform unset.
+    val platform: String,
+)
 
 @HiltViewModel
 class NotificationSettingsViewModel @Inject constructor(
@@ -47,7 +55,9 @@ class NotificationSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
-                supabase.db["device_tokens"].upsert(DeviceTokenInsert(user_id = uid, token = token)) {
+                supabase.db["device_tokens"].upsert(
+                    DeviceTokenInsert(user_id = uid, token = token, platform = "android"),
+                ) {
                     onConflict = "user_id,token"
                 }
                 Log.d(TAG, "Device token saved for $uid: $token")
