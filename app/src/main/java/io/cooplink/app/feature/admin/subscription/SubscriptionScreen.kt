@@ -76,8 +76,16 @@ fun SubscriptionScreen(
                 viewModel.openPaystack(context, payment.url)
             }
             is SubscriptionPaymentState.Success -> {
+                // Still a success — the plan is active either way, so the
+                // celebration stays. A warning replaces the congratulation
+                // text because it carries the Paystack reference the admin may
+                // need to quote, which matters more than the pleasantry.
                 showConfetti = true
-                Toast.makeText(context, "Upgraded to ${payment.planName}!", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    payment.warning ?: "Upgraded to ${payment.planName}!",
+                    Toast.LENGTH_LONG,
+                ).show()
                 viewModel.resetPayment()
             }
             is SubscriptionPaymentState.Failed -> {
