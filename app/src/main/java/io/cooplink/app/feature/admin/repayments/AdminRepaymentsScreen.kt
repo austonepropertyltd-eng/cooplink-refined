@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.domain.Loan
 import io.cooplink.app.core.domain.format
+import io.cooplink.app.core.domain.statusLabel
 import io.cooplink.app.core.ui.currentCurrency
 import io.cooplink.app.ui.theme.CoopError
 import io.cooplink.app.ui.theme.CoopGold
@@ -128,12 +129,19 @@ private fun RecordRepaymentDialog(
     var paymentMethod by remember { mutableStateOf(PAYMENT_METHODS.first()) }
     var methodMenuExpanded by remember { mutableStateOf(false) }
     var hasSubmitted by remember { mutableStateOf(false) }
+    var showOverpaymentConfirm by remember { mutableStateOf(false) }
     val parsed = amount.toDoubleOrNull()
     val justSubmitted = !state.isSubmitting && state.submitError == null
     val memberLoans = state.loansByMember[selectedMemberId] ?: emptyList()
+    val isOverpaying = parsed != null && selectedLoan != null && parsed > selectedLoan!!.outstandingBalance
 
     LaunchedEffect(selectedMemberId) { selectedLoan = memberLoans.firstOrNull() }
     LaunchedEffect(justSubmitted) { if (hasSubmitted && justSubmitted) onSaved() }
+
+    fun submit() {
+        hasSubmitted = true
+        selectedMemberId?.let { mid -> selectedLoan?.let { loan -> parsed?.let { onSubmit(mid, loan, it, paymentDate, paymentMethod) } } }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -169,7 +177,7 @@ private fun RecordRepaymentDialog(
                         )
                         ExposedDropdownMenu(expanded = loanMenuExpanded, onDismissRequest = { loanMenuExpanded = false }) {
                             memberLoans.forEach { loan ->
-                                DropdownMenuItem(text = { Text("${currency.format(loan.outstandingBalance)} · ${loan.status}") },
+                                DropdownMenuItem(text = { Text("${currency.format(loan.outstandingBalance)} · ${loan.statusLabel()}") },
                                     onClick = { selectedLoan = loan; loanMenuExpanded = false })
                             }
                         }
@@ -182,6 +190,12 @@ private fun RecordRepaymentDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
+                if (isOverpaying) {
+                    Text(
+                        "This is more than the outstanding balance of ${currency.format(selectedLoan!!.outstandingBalance)}.",
+                        color = CoopError, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedTextField(
                     value = paymentDate, onValueChange = { paymentDate = it },
                     label = { Text("Payment Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -200,10 +214,7 @@ private fun RecordRepaymentDialog(
         },
         confirmButton = {
             Button(
-                onClick = {
-                    hasSubmitted = true
-                    selectedMemberId?.let { mid -> selectedLoan?.let { loan -> parsed?.let { onSubmit(mid, loan, it, paymentDate, paymentMethod) } } }
-                },
+                onClick = { if (isOverpaying) showOverpaymentConfirm = true else submit() },
                 enabled = selectedMemberId != null && selectedLoan != null && parsed != null && parsed > 0 && paymentDate.isNotBlank() && !state.isSubmitting,
                 colors  = ButtonDefaults.buttonColors(containerColor = CoopTeal),
             ) {
@@ -212,4 +223,23 @@ private fun RecordRepaymentDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showOverpaymentConfirm) {
+        AlertDialog(
+            onDismissRequest = { showOverpaymentConfirm = false },
+            title = { Text("Confirm overpayment") },
+            text = {
+                Text(
+                    "${currency.format(parsed ?: 0.0)} is more than the ${currency.format(selectedLoan?.outstandingBalance ?: 0.0)} " +
+                        "still owed on this loan. Record it anyway?",
+                )
+            },
+            confirmButton = {
+                Button(onClick = { showOverpaymentConfirm = false; submit() }, colors = ButtonDefaults.buttonColors(containerColor = CoopError)) {
+                    Text("Record Anyway")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showOverpaymentConfirm = false }) { Text("Cancel") } },
+        )
+    }
 }

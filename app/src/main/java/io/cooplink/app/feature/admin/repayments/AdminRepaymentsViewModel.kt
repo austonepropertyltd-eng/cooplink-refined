@@ -35,13 +35,25 @@ private data class NewRepaymentRequest(
     val member_id: String,
     val cooperative_id: String?,
     val loan_id: String,
-    val type: String = "loan_repayment",
+    // No default — kotlinx.serialization's encodeDefaults=false (the
+    // supabase-kt default) omits a property from the wire request whenever
+    // its value equals the declared default, REGARDLESS of whether the call
+    // site passed it explicitly or not. A default of "loan_repayment" here
+    // still gets silently dropped even when every caller passes exactly that
+    // value, which is exactly what caused every repayment insert to fail with
+    // "null value in column type violates not-null constraint" (confirmed
+    // live) even after explicitly passing type = "loan_repayment" at the call
+    // site. Making it a required, non-defaulted parameter is the only fix.
+    val type: String,
     val amount: Double,
     val description: String? = null,
 )
 
 @Serializable
 private data class LoanBalancePatch(val outstanding_balance: Double, val status: String)
+
+@Serializable
+private data class LoanBalanceRow(val outstanding_balance: Double = 0.0)
 
 data class RepaymentRow(val transaction: Transaction, val memberName: String?, val loanBalance: Double?)
 
@@ -84,12 +96,35 @@ class AdminRepaymentsViewModel @Inject constructor(
                         member_id      = memberId,
                         cooperative_id = coopId,
                         loan_id        = loan.id,
+                        // kotlinx.serialization's Json (as configured by
+                        // supabase-kt) doesn't encode a property that's still
+                        // at its default value — `type` was silently dropped
+                        // from every request despite the default = "loan_repayment"
+                        // below, so every repayment failed with "null value in
+                        // column type violates not-null constraint" (confirmed
+                        // live). Passing it explicitly forces it to be sent.
+                        type           = "loan_repayment",
                         amount         = amount,
                         description    = "Repayment via $paymentMethod on $paymentDate",
                     ),
                 )
 
-                val newBalance = (loan.outstandingBalance - amount).coerceAtLeast(0.0)
+                // Re-read the balance right before writing rather than trusting
+                // the `loan` snapshot captured whenever the dialog was opened —
+                // narrows the window for a lost update if two repayments for
+                // the same loan are recorded close together (true atomicity
+                // would need a server-side RPC doing the decrement in SQL,
+                // which isn't available here).
+                val currentBalance = runCatching {
+                    supabase.db["loans"]
+                        .select(io.github.jan.supabase.postgrest.query.Columns.list("outstanding_balance")) {
+                            filter { eq("id", loan.id) }
+                        }
+                        .decodeSingle<LoanBalanceRow>()
+                        .outstanding_balance
+                }.getOrDefault(loan.outstandingBalance)
+
+                val newBalance = (currentBalance - amount).coerceAtLeast(0.0)
                 val newStatus = if (newBalance <= 0.0) LoanStatus.COMPLETED else LoanStatus.REPAYING
                 supabase.db["loans"].update(LoanBalancePatch(newBalance, newStatus)) { filter { eq("id", loan.id) } }
 

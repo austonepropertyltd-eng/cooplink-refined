@@ -64,7 +64,10 @@ private data class NewDisputeRequest(
     val subject: String,
     val description: String,
     val category: String,
-    val status: String = DisputeStatus.OPEN,
+    // No default — see NewRepaymentRequest.type in AdminRepaymentsViewModel
+    // for why a defaulted property is silently dropped from the request even
+    // when the call site passes exactly that value.
+    val status: String,
 )
 
 data class DisputesUiState(
@@ -74,6 +77,10 @@ data class DisputesUiState(
     val error: String?                  = null,
     val isSubmitting: Boolean           = false,
     val submitError: String?            = null,
+    // True when the list on screen is a local cache and the most recent
+    // refresh attempt failed — the error is intentionally suppressed in that
+    // case (see load()) so this is the only signal the data may be stale.
+    val isShowingStaleCache: Boolean    = false,
 )
 
 @HiltViewModel
@@ -105,6 +112,12 @@ class DisputesViewModel @Inject constructor(
                         subject        = subject,
                         description    = description,
                         category       = category,
+                        // Must be passed explicitly — kotlinx.serialization
+                        // doesn't encode a property still at its default
+                        // value, silently dropping it from the request and
+                        // failing on a NOT NULL constraint (confirmed live
+                        // for the identical pattern in AdminRepaymentsViewModel).
+                        status         = DisputeStatus.OPEN,
                     ),
                 )
                 _state.value = _state.value.copy(isSubmitting = false)
@@ -170,7 +183,11 @@ class DisputesViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load disputes", e)
                 val hasCachedContent = _state.value.disputes.isNotEmpty()
-                _state.value = _state.value.copy(isLoading = false, error = if (hasCachedContent) null else GENERIC_LOAD_ERROR)
+                _state.value = _state.value.copy(
+                    isLoading           = false,
+                    error               = if (hasCachedContent) null else GENERIC_LOAD_ERROR,
+                    isShowingStaleCache = hasCachedContent,
+                )
             }
         }
     }

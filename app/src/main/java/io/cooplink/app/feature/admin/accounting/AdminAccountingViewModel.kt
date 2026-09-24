@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
 import io.cooplink.app.core.domain.Loan
+import io.cooplink.app.core.domain.LoanStatus
 import io.cooplink.app.core.domain.Transaction
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.util.PremiumExportManager
 import io.cooplink.app.core.util.retrying
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,13 +65,27 @@ class AdminAccountingViewModel @Inject constructor(
                         .select { filter { eq("cooperative_id", coopId) }; order("created_at", Order.ASCENDING) }
                         .decodeList<Transaction>()
 
-                    val loans = runCatching {
-                        supabase.db["loans"].select { filter { eq("cooperative_id", coopId) } }.decodeList<Loan>()
+                    // loans.cooperative_id isn't reliably populated on every
+                    // row (same gap documented elsewhere for transactions) —
+                    // every other admin screen that reads loans scopes via
+                    // member_id instead; filtering loans directly by
+                    // cooperative_id here could silently return an empty
+                    // list and understate the loan portfolio with no error.
+                    val memberIds = supabase.db["members"]
+                        .select(Columns.list("id")) { filter { eq("cooperative_id", coopId) } }
+                        .decodeList<Map<String, String>>()
+                        .mapNotNull { it["id"] }
+
+                    val loans = if (memberIds.isEmpty()) emptyList() else runCatching {
+                        supabase.db["loans"].select { filter { isIn("member_id", memberIds) } }.decodeList<Loan>()
                     }.getOrDefault(emptyList())
 
                     var runningBalance = 0.0
                     val ledger = transactions.map { tx ->
-                        val isCredit = tx.type.lowercase() in setOf("contribution", "deposit", "wallet_funding", "repayment", "fee")
+                        // "loan_repayment" is the actual value AdminRepaymentsViewModel writes
+                        // (confirmed against AdminTransactionsViewModel's CREDIT_TYPES) — "repayment"
+                        // alone was silently misclassifying every recorded repayment as a debit.
+                        val isCredit = tx.type.lowercase() in setOf("contribution", "deposit", "wallet_funding", "repayment", "loan_repayment", "fee")
                         val debit = if (isCredit) 0.0 else tx.amount
                         val credit = if (isCredit) tx.amount else 0.0
                         runningBalance += credit - debit
@@ -78,27 +94,32 @@ class AdminAccountingViewModel @Inject constructor(
 
                     val savings = transactions.filter { it.type.lowercase() in setOf("contribution", "deposit", "wallet_funding") }.sumOf { it.amount }
                     val repayments = transactions.filter { it.type.contains("repay", true) }.sumOf { it.amount }
-                    val adminFees = transactions.filter { it.type.contains("fee", true) }.sumOf { it.amount }
+                    val adminFees = transactions.filter { it.type.contains("fee", true) && !it.type.contains("late", true) }.sumOf { it.amount }
+                    val penaltyFees = transactions.filter { it.type.contains("fine", true) || it.type.contains("penalty", true) }.sumOf { it.amount }
                     val outstandingLoans = loans.sumOf { it.outstandingBalance }
+
+                    // Interest income is only recognized once a loan is fully repaid
+                    // (status == COMPLETED) rather than accrued proportionally as
+                    // repayments come in — total_interest is frozen at application
+                    // time and doesn't track partial progress toward it.
+                    val interestEarned = loans.filter { it.status == LoanStatus.COMPLETED }.sumOf { it.totalInterest ?: 0.0 }
 
                     val trialBalance = listOf(
                         TrialBalanceRow("Member Savings", 0.0, savings),
                         TrialBalanceRow("Loan Portfolio", outstandingLoans, 0.0),
                         TrialBalanceRow("Repayments Received", 0.0, repayments),
                         TrialBalanceRow("Admin Fees", 0.0, adminFees),
+                        TrialBalanceRow("Interest Earned", 0.0, interestEarned),
+                        TrialBalanceRow("Late Fees / Penalties", 0.0, penaltyFees),
                     )
 
-                    // loans has no interest_rate-times-balance accrual tracking,
-                    // so "interest earned" is approximated from repayments minus
-                    // principal reduction isn't derivable either — the only real
-                    // income figures the schema actually supports are fees.
                     AdminAccountingUiState(
                         isLoading = false,
                         ledger = ledger,
                         trialBalance = trialBalance,
-                        interestEarned = 0.0,
+                        interestEarned = interestEarned,
                         adminFees = adminFees,
-                        penaltyFees = 0.0,
+                        penaltyFees = penaltyFees,
                         operatingCosts = 0.0,
                         totalAssets = outstandingLoans,
                         totalLiabilities = savings,

@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -24,16 +26,19 @@ import coil.compose.AsyncImage
 import io.cooplink.app.core.domain.IdType
 import io.cooplink.app.core.domain.KycStatus
 import io.cooplink.app.core.security.InactivityManager
+import io.cooplink.app.feature.shell.CooperativeBrandingUiState
 import io.cooplink.app.ui.theme.*
 
 @Composable
 fun KycScreen(
     onBack: () -> Unit,
     inactivityManager: InactivityManager,
+    branding: CooperativeBrandingUiState = CooperativeBrandingUiState(),
     viewModel: KycViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val isMicrofinance = branding.isMicrofinance
 
     var selectedIdType by remember { mutableStateOf<IdType?>(null) }
     var idNumber by remember { mutableStateOf("") }
@@ -44,6 +49,11 @@ fun KycScreen(
     }
     LaunchedEffect(state.kycData.idNumber) {
         if (idNumber.isBlank()) idNumber = state.kycData.idNumber ?: ""
+    }
+    // Microfinance institutions require BVN — lock the selection regardless
+    // of whatever the member had previously chosen.
+    LaunchedEffect(isMicrofinance) {
+        if (isMicrofinance) selectedIdType = IdType.BVN
     }
 
     val idDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -118,17 +128,38 @@ fun KycScreen(
                     Text("Step 1 — Select ID Type", style = MaterialTheme.typography.titleMedium,
                         color = Color.White, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
-                    ExposedDropdownMenuBox(expanded = expandedIdType, onExpandedChange = { expandedIdType = it }) {
-                        OutlinedTextField(
-                            value = selectedIdType?.label ?: "Select ID type",
-                            onValueChange = {}, readOnly = true,
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedIdType) },
-                            colors = kycFieldColors(),
-                        )
-                        ExposedDropdownMenu(expanded = expandedIdType, onDismissRequest = { expandedIdType = false }) {
-                            IdType.entries.forEach { type ->
-                                DropdownMenuItem(text = { Text(type.label) }, onClick = { selectedIdType = type; expandedIdType = false })
+                    if (isMicrofinance) {
+                        Card(
+                            Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = CoopTeal.copy(alpha = 0.1f)),
+                            border = BorderStroke(1.dp, CoopTeal.copy(alpha = 0.3f)),
+                        ) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Lock, null, tint = CoopTeal, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text("ID Type: BVN Required", style = MaterialTheme.typography.titleSmall,
+                                        color = CoopTeal, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "Microfinance institutions require Bank Verification Number (BVN)",
+                                        style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        ExposedDropdownMenuBox(expanded = expandedIdType, onExpandedChange = { expandedIdType = it }) {
+                            OutlinedTextField(
+                                value = selectedIdType?.label ?: "Select ID type",
+                                onValueChange = {}, readOnly = true,
+                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedIdType) },
+                                colors = kycFieldColors(),
+                            )
+                            ExposedDropdownMenu(expanded = expandedIdType, onDismissRequest = { expandedIdType = false }) {
+                                IdType.entries.forEach { type ->
+                                    DropdownMenuItem(text = { Text(type.label) }, onClick = { selectedIdType = type; expandedIdType = false })
+                                }
                             }
                         }
                     }
@@ -139,10 +170,19 @@ fun KycScreen(
                         color = Color.White, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = idNumber, onValueChange = { idNumber = it },
-                        label = { Text("ID Number") },
-                        placeholder = { Text("Enter your ID number") },
+                        value = idNumber,
+                        onValueChange = { input ->
+                            if (!isMicrofinance) idNumber = input
+                            else if (input.length <= 11 && input.all { it.isDigit() }) idNumber = input
+                        },
+                        label = { Text(if (isMicrofinance) "BVN (Required)" else "ID Number") },
+                        placeholder = { Text(if (isMicrofinance) "Enter your 11-digit BVN" else "Enter your ID number") },
                         leadingIcon = { Icon(Icons.Default.Badge, null) },
+                        isError = isMicrofinance && idNumber.isNotEmpty() && idNumber.length != 11,
+                        supportingText = if (isMicrofinance) {
+                            { Text("11-digit BVN required for microfinance KYC") }
+                        } else null,
+                        keyboardOptions = if (isMicrofinance) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         colors = kycFieldColors(),
                     )
@@ -212,7 +252,14 @@ fun KycScreen(
                 }
 
                 item {
-                    val canSubmit = selectedIdType != null && idNumber.isNotBlank() && !state.isLoading && !state.isUploading
+                    val hasDocument = state.kycData.idDocumentUrl != null
+                    val canSubmit = if (isMicrofinance) {
+                        selectedIdType != null && idNumber.length == 11 && idNumber.all { it.isDigit() } &&
+                            hasDocument && !state.isLoading && !state.isUploading
+                    } else {
+                        selectedIdType != null && idNumber.isNotBlank() &&
+                            hasDocument && !state.isLoading && !state.isUploading
+                    }
                     Button(
                         onClick = { viewModel.submitKyc(selectedIdType!!, idNumber) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -227,6 +274,16 @@ fun KycScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("Submit KYC for Review", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         }
+                    }
+                    if (!hasDocument) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Upload your ID document above before submitting.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CoopError,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(

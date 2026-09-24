@@ -1,6 +1,7 @@
 package io.cooplink.app.feature.admin.reports
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -113,13 +114,19 @@ fun AdminReportsScreen(viewModel: AdminReportsViewModel = hiltViewModel()) {
                             rows = row.csvRows,
                         )
                         if (uri != null) viewModel.exportManager.shareUri(uri, "application/pdf", shareLauncher::launch)
-                        else viewModel.inactivityManager.resumeTimer()
+                        else {
+                            viewModel.inactivityManager.resumeTimer()
+                            Toast.makeText(context, "Could not export PDF. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onExportCsv = {
                         viewModel.inactivityManager.pauseTimer()
                         val uri = viewModel.exportManager.exportToCsv(row.title, row.csvHeader, row.csvRows)
                         if (uri != null) viewModel.exportManager.shareUri(uri, "text/csv", shareLauncher::launch)
-                        else viewModel.inactivityManager.resumeTimer()
+                        else {
+                            viewModel.inactivityManager.resumeTimer()
+                            Toast.makeText(context, "Could not export CSV. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
                     },
                 )
             }

@@ -18,7 +18,15 @@ import javax.inject.Inject
 private const val TAG = "NotificationSettingsVM"
 
 @Serializable
-private data class DeviceTokenInsert(val user_id: String, val token: String, val platform: String = "android")
+private data class DeviceTokenInsert(
+    val user_id: String,
+    val token: String,
+    // No default — kotlinx.serialization runs with encodeDefaults = false, so
+    // a property still sitting at its default is omitted from the request
+    // entirely. As a defaulted property this column was never actually sent,
+    // and every row this path wrote left platform unset.
+    val platform: String,
+)
 
 @HiltViewModel
 class NotificationSettingsViewModel @Inject constructor(
@@ -39,17 +47,22 @@ class NotificationSettingsViewModel @Inject constructor(
     fun setSoundEnabled(enabled: Boolean) = viewModelScope.launch { notificationPreferences.setSoundEnabled(enabled) }
     fun setVibration(enabled: Boolean) = viewModelScope.launch { notificationPreferences.setVibration(enabled) }
 
-    // No device_tokens table exists on this backend yet (confirmed via a
-    // direct probe — the table isn't found). This fails silently rather than
-    // crashing; push delivery to a specific device just isn't addressable
-    // until that table (and the server-side send path) exists.
+    // device_tokens has a unique(user_id, token) constraint — the FCM token
+    // is stable across app launches, so a plain insert() fails with a
+    // duplicate-key error on every launch after the first. upsert() makes
+    // re-registering the same token a no-op instead of an error.
     fun saveDeviceToken(token: String) {
         viewModelScope.launch {
             try {
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return@launch
-                supabase.db["device_tokens"].insert(DeviceTokenInsert(user_id = uid, token = token))
+                supabase.db["device_tokens"].upsert(
+                    DeviceTokenInsert(user_id = uid, token = token, platform = "android"),
+                ) {
+                    onConflict = "user_id,token"
+                }
+                Log.d(TAG, "Device token saved for $uid: $token")
             } catch (e: Exception) {
-                Log.w(TAG, "Could not save device token (device_tokens table likely missing)", e)
+                Log.w(TAG, "Could not save device token", e)
             }
         }
     }

@@ -26,7 +26,10 @@ private data class NewContributionRequest(
     val member_id: String,
     val cooperative_id: String?,
     val amount: Double,
-    val status: String = "completed",
+    // No default — see NewRepaymentRequest.type in AdminRepaymentsViewModel
+    // for why a defaulted property is silently dropped from the request even
+    // when the call site passes exactly that value.
+    val status: String,
 )
 
 data class AdminContributionRow(
@@ -93,7 +96,12 @@ class AdminContributionsViewModel @Inject constructor(
                     ?: throw IllegalStateException("Could not determine your cooperative")
 
                 supabase.db["contributions"].insert(
-                    NewContributionRequest(member_id = memberId, cooperative_id = coopId, amount = amount),
+                    // `status` must be passed explicitly — kotlinx.serialization
+                    // doesn't encode a property still at its default value, so
+                    // relying on the default alone drops the column from the
+                    // request entirely and fails on a NOT NULL constraint
+                    // (confirmed live for the identical pattern in AdminRepaymentsViewModel).
+                    NewContributionRequest(member_id = memberId, cooperative_id = coopId, amount = amount, status = "completed"),
                 )
                 _state.value = _state.value.copy(isSubmitting = false, snackbarMessage = "Contribution recorded")
                 load()

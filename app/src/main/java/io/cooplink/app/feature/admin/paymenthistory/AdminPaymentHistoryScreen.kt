@@ -145,7 +145,7 @@ private fun SummaryCard(modifier: Modifier, label: String, value: String, color:
 @Composable
 private fun PaymentRowCard(row: PaymentRow, onClick: () -> Unit) {
     val currency = currentCurrency()
-    val isCredit = row.transaction.type.lowercase() in setOf("contribution", "deposit", "wallet_funding", "repayment")
+    val isCredit = row.transaction.type.lowercase() in setOf("contribution", "deposit", "wallet_funding", "repayment", "loan_repayment")
     val color = if (isCredit) CoopGreen else CoopError
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
         ListItem(

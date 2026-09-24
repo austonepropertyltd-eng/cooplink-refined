@@ -23,11 +23,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 
 private const val TAG = "CoopLinkMessaging"
+
+@Serializable
+private data class DeviceTokenUpsert(
+    val user_id: String,
+    val token: String,
+    // No default — kotlinx.serialization omits a property still sitting at
+    // its default value, silently dropping it from the request (the same trap
+    // documented on NewRepaymentRequest.type in AdminRepaymentsViewModel).
+    val platform: String,
+)
 
 @AndroidEntryPoint
 class CoopLinkMessagingService : FirebaseMessagingService() {
@@ -46,26 +55,44 @@ class CoopLinkMessagingService : FirebaseMessagingService() {
         val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return
         serviceScope.launch {
             runCatching {
-                val existing = supabase.db["device_tokens"]
-                    .select { filter { eq("user_id", uid); eq("token", token) } }
-                    .decodeSingleOrNull<Map<String, String>>()
-                if (existing == null) {
-                    supabase.db["device_tokens"].insert(
-                        buildJsonObject {
-                            put("user_id", uid)
-                            put("token", token)
-                            put("platform", "android")
-                        },
-                    )
-                }
-            }.onFailure { Log.w(TAG, "Failed to upload device token", it) }
+                // upsert against the unique(user_id, token) constraint rather
+                // than select-then-insert: the read/write pair races this
+                // callback against MemberShell's launch-time registration into
+                // a duplicate-key failure, and re-registering an unchanged
+                // token has to be a no-op rather than an error. Matches
+                // NotificationSettingsViewModel.saveDeviceToken.
+                supabase.db["device_tokens"].upsert(
+                    DeviceTokenUpsert(user_id = uid, token = token, platform = "android"),
+                ) { onConflict = "user_id,token" }
+            }.onFailure {
+                // A token that never reaches the backend means this device
+                // receives no push at all, with nothing visible to the user to
+                // say so. MemberShell re-registers on every launch, so this
+                // does recover on next start — logged at error level because
+                // it is the first thing to check when a "push never arrived"
+                // report comes in, and it is otherwise indistinguishable from
+                // a backend delivery problem.
+                Log.e(
+                    TAG,
+                    "Device token upload failed for $uid — no push can reach this device " +
+                        "until the next app launch re-registers it",
+                    it,
+                )
+            }
         }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         createNotificationChannels(this, getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+        // `message` is accepted alongside `body` because the app's own senders
+        // (e.g. AdminLoansViewModel) post the text under the same key the
+        // notifications table uses — without this fallback a push whose data
+        // payload says `message` would arrive with an empty body.
         val title   = message.notification?.title ?: message.data["title"] ?: "CoopLink"
-        val body    = message.notification?.body  ?: message.data["body"]  ?: ""
+        val body    = message.notification?.body
+            ?: message.data["body"]
+            ?: message.data["message"]
+            ?: ""
         val channel = message.data["channel"] ?: "announcements"
 
         // FCM delivers this on a background thread outside a coroutine scope,

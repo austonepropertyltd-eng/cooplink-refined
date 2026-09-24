@@ -4,8 +4,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.cooplink.app.core.data.CooperativeRepository
 import io.cooplink.app.core.data.MemberRepository
 import io.cooplink.app.core.domain.Contribution
+import io.cooplink.app.core.domain.CooperativeBankAccount
+import io.cooplink.app.core.domain.SavingsInterestMethod
 import io.cooplink.app.core.network.NetworkMonitor
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.notifications.SoundManager
@@ -35,7 +38,10 @@ private data class NewContributionRequest(
     val member_id: String,
     val cooperative_id: String?,
     val amount: Double,
-    val status: String = "pending",
+    // No default — see NewRepaymentRequest.type in AdminRepaymentsViewModel
+    // for why a defaulted property is silently dropped from the request even
+    // when the call site passes exactly that value.
+    val status: String,
 )
 
 @Serializable
@@ -57,12 +63,19 @@ data class ContributionsUiState(
     val showSavingsGoalComingSoon: Boolean = false,
     val receiptUri: android.net.Uri? = null,
     val receiptAmount: String? = null,
+    val bankAccounts: List<CooperativeBankAccount> = emptyList(),
+    // Annualized projection at the cooperative's configured rate — only
+    // populated when the admin has chosen "Simple Estimate" as the method;
+    // null means either no rate is set or the cooperative uses manual
+    // periodic crediting instead (which doesn't need a live estimate shown).
+    val estimatedAnnualInterest: Double? = null,
 )
 
 @HiltViewModel
 class ContributionsViewModel @Inject constructor(
     private val supabase: SupabaseClient,
     private val memberRepository: MemberRepository,
+    private val cooperativeRepository: CooperativeRepository,
     private val networkMonitor: NetworkMonitor,
     private val offlineQueueManager: OfflineQueueManager,
     private val soundManager: SoundManager,
@@ -121,6 +134,12 @@ class ContributionsViewModel @Inject constructor(
                         member_id      = member.id,
                         cooperative_id = member.cooperativeId,
                         amount         = amount,
+                        // Must be passed explicitly — kotlinx.serialization
+                        // doesn't encode a property still at its default
+                        // value, silently dropping it from the request and
+                        // failing on a NOT NULL constraint (confirmed live
+                        // for the identical pattern in AdminRepaymentsViewModel).
+                        status         = "pending",
                     ),
                 )
                 _state.value = _state.value.copy(isSubmitting = false)
@@ -216,11 +235,12 @@ class ContributionsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
-                val result = retrying {
+                val (contributions, bankAccounts, estimatedInterest) = retrying {
                     val uid = supabase.auth.currentSessionOrNull()?.user?.id
                         ?: throw IllegalStateException("Not authenticated")
 
-                    val memberId = memberRepository.findCurrentMember()?.id ?: uid
+                    val member = memberRepository.findCurrentMember()
+                    val memberId = member?.id ?: uid
 
                     val contributions = supabase.db["contributions"]
                         .select {
@@ -229,9 +249,27 @@ class ContributionsViewModel @Inject constructor(
                         }
                         .decodeList<Contribution>()
 
-                    ContributionsUiState(isLoading = false, contributions = contributions)
+                    val bankAccounts = member?.cooperativeId
+                        ?.let { memberRepository.fetchCooperativeBankAccounts(it) }
+                        ?: emptyList()
+
+                    val estimatedInterest = member?.cooperativeId
+                        ?.let { cooperativeRepository.fetchCooperative(it) }
+                        ?.takeIf { it.savingsInterestMethod == SavingsInterestMethod.SIMPLE_ESTIMATE && (it.savingsInterestRate ?: 0.0) > 0.0 }
+                        ?.let { coop -> contributions.sumOf { it.amount } * ((coop.savingsInterestRate ?: 0.0) / 100.0) }
+
+                    Triple(contributions, bankAccounts, estimatedInterest)
                 }
-                _state.value = result
+                // .copy() rather than a fresh ContributionsUiState(...) — a
+                // reload (pull-to-refresh, or the one addContribution() fires
+                // after submitting) must not wipe a just-generated virtual
+                // account or a just-shown receipt out from under the member.
+                _state.value = _state.value.copy(
+                    isLoading     = false,
+                    contributions = contributions,
+                    bankAccounts  = bankAccounts,
+                    estimatedAnnualInterest = estimatedInterest,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load contributions", e)
                 _state.value = _state.value.copy(isLoading = false, error = GENERIC_LOAD_ERROR)

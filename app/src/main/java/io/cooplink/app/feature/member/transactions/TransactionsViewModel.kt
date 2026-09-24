@@ -38,35 +38,17 @@ data class Dispute(
     val created_at: String?   = null,
 )
 
-@Serializable
-private data class NewStandingOrderRequest(
-    val member_id: String,
-    val cooperative_id: String?,
-    val amount: Double,
-    val frequency: String,
-    val start_date: String,
-    val purpose: String?,
-)
-
-@Serializable
-private data class NewDisputeRequest(
-    val member_id: String,
-    val cooperative_id: String?,
-    val category: String,
-    val description: String,
-    val status: String = "open",
-)
-
 data class TransactionsUiState(
     val isLoading: Boolean               = true,
     val transactions: List<Transaction>  = emptyList(),
     val standingOrders: List<StandingOrder> = emptyList(),
     val disputes: List<Dispute>          = emptyList(),
+    // Distinguishes "genuinely no standing orders/disputes" from "the
+    // sub-fetch failed" — both used to collapse to an empty list with no
+    // signal to the member that something didn't load.
+    val standingOrdersLoadFailed: Boolean = false,
+    val disputesLoadFailed: Boolean       = false,
     val error: String?                    = null,
-    val isSubmittingOrder: Boolean        = false,
-    val orderError: String?               = null,
-    val isSubmittingDispute: Boolean      = false,
-    val disputeError: String?             = null,
     val snackbarMessage: String?          = null,
 )
 
@@ -84,59 +66,6 @@ class TransactionsViewModel @Inject constructor(
     fun refresh() = load()
 
     fun clearSnackbar() { _state.value = _state.value.copy(snackbarMessage = null) }
-    fun clearOrderError() { _state.value = _state.value.copy(orderError = null) }
-    fun clearDisputeError() { _state.value = _state.value.copy(disputeError = null) }
-
-    fun createStandingOrder(amount: Double, frequency: String, startDate: String, purpose: String) {
-        viewModelScope.launch {
-            _state.value = _state.value.copy(isSubmittingOrder = true, orderError = null)
-            try {
-                val member = memberRepository.findCurrentMember()
-                    ?: throw IllegalStateException("Could not determine your member record")
-                supabase.db["standing_orders"].insert(
-                    NewStandingOrderRequest(
-                        member_id      = member.id,
-                        cooperative_id = member.cooperativeId,
-                        amount         = amount,
-                        frequency      = frequency,
-                        start_date     = startDate,
-                        purpose        = purpose.ifBlank { null },
-                    ),
-                )
-                _state.value = _state.value.copy(isSubmittingOrder = false, snackbarMessage = "Standing order created")
-                load()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create standing order", e)
-                _state.value = _state.value.copy(isSubmittingOrder = false, orderError = "Could not create this standing order. Please try again.")
-            }
-        }
-    }
-
-    fun raiseDispute(category: String, description: String) {
-        viewModelScope.launch {
-            _state.value = _state.value.copy(isSubmittingDispute = true, disputeError = null)
-            try {
-                val member = memberRepository.findCurrentMember()
-                    ?: throw IllegalStateException("Could not determine your member record")
-                supabase.db["disputes"].insert(
-                    NewDisputeRequest(
-                        member_id      = member.id,
-                        cooperative_id = member.cooperativeId,
-                        category       = category,
-                        description    = description,
-                    ),
-                )
-                _state.value = _state.value.copy(
-                    isSubmittingDispute = false,
-                    snackbarMessage     = "Dispute raised. Your cooperative admin will review within 48 hours.",
-                )
-                load()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to raise dispute", e)
-                _state.value = _state.value.copy(isSubmittingDispute = false, disputeError = "Could not raise this dispute. Please try again.")
-            }
-        }
-    }
 
     private fun load() {
         viewModelScope.launch {
@@ -155,19 +84,21 @@ class TransactionsViewModel @Inject constructor(
                         }
                         .decodeList<Transaction>()
 
-                    val standingOrders = runCatching {
+                    val standingOrdersResult = runCatching {
                         supabase.db["standing_orders"].select { filter { eq("member_id", memberId) } }.decodeList<StandingOrder>()
-                    }.getOrDefault(emptyList())
+                    }.onFailure { Log.w(TAG, "Failed to load standing orders", it) }
 
-                    val disputes = runCatching {
+                    val disputesResult = runCatching {
                         supabase.db["disputes"].select { filter { eq("member_id", memberId) } }.decodeList<Dispute>()
-                    }.getOrDefault(emptyList())
+                    }.onFailure { Log.w(TAG, "Failed to load disputes", it) }
 
                     TransactionsUiState(
-                        isLoading      = false,
-                        transactions   = transactions,
-                        standingOrders = standingOrders,
-                        disputes       = disputes,
+                        isLoading               = false,
+                        transactions            = transactions,
+                        standingOrders          = standingOrdersResult.getOrDefault(emptyList()),
+                        disputes                = disputesResult.getOrDefault(emptyList()),
+                        standingOrdersLoadFailed = standingOrdersResult.isFailure,
+                        disputesLoadFailed      = disputesResult.isFailure,
                     )
                 }
                 _state.value = result

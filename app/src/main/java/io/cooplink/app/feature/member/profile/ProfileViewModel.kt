@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 private const val TAG = "ProfileVM"
@@ -29,9 +32,6 @@ private const val GENERIC_LOAD_ERROR = "Could not load your profile. Pull down t
 
 @Serializable
 private data class ProfileUpdateRequest(val full_name: String, val phone: String?)
-
-@Serializable
-private data class MemberUpdateRequest(val date_of_birth: String?, val address: String?)
 
 @Serializable
 private data class AvatarUpdateRequest(val avatar_url: String)
@@ -46,6 +46,12 @@ data class ProfileUiState(
     val isChangingPassword: Boolean = false,
     val passwordError: String?   = null,
     val isUploadingAvatar: Boolean = false,
+    // Freshly-resolved signed URL for a photo just uploaded this session —
+    // passed straight to MemberAvatar's resolvedUrlOverride so the new photo
+    // renders immediately. Re-uploading to the same storage path means
+    // member.avatarUrl (the raw path) is unchanged, so MemberAvatar's own
+    // path-keyed resolution would just serve its previous cached signed URL.
+    val justUploadedAvatarUrl: String? = null,
 )
 
 @HiltViewModel
@@ -60,6 +66,8 @@ class ProfileViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
+
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     val autoLogoutEnabled: StateFlow<Boolean> = sessionPreferences.autoLogoutEnabledFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -82,13 +90,15 @@ class ProfileViewModel @Inject constructor(
     fun refresh() = load()
 
     private fun load() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
-                val result = retrying {
-                    ProfileUiState(isLoading = false, member = memberRepository.findCurrentMember())
+                val member = retrying {
+                    memberRepository.findCurrentMember()
+                        ?: throw IllegalStateException("Could not determine your member record")
                 }
-                _state.value = result
+                _state.value = _state.value.copy(isLoading = false, member = member)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load profile", e)
                 _state.value = _state.value.copy(isLoading = false, error = GENERIC_LOAD_ERROR)
@@ -103,7 +113,7 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isSavingInfo = true, saveInfoError = null)
             try {
-                val member = _state.value.member
+                _state.value.member
                     ?: throw IllegalStateException("Could not determine your member record")
                 val uid = supabase.auth.currentSessionOrNull()?.user?.id
                     ?: throw IllegalStateException("Not authenticated")
@@ -112,13 +122,22 @@ class ProfileViewModel @Inject constructor(
                     .update(ProfileUpdateRequest(full_name = fullName, phone = phone.ifBlank { null })) {
                         filter { eq("user_id", uid) }
                     }
-                supabase.db["members"]
-                    .update(MemberUpdateRequest(
-                        date_of_birth = dateOfBirth.ifBlank { null },
-                        address       = address.ifBlank { null },
-                    )) {
-                        filter { eq("id", member.id) }
-                    }
+                // Direct UPDATEs to `members` are blocked by RLS — same RPC
+                // used for KYC submission, scoped server-side to auth.uid().
+                // Blank fields are omitted entirely (not sent as null) since
+                // this dialog always opens with dob/address blank (there's
+                // no source to pre-populate them from) — sending an explicit
+                // null would wipe a previously-saved value on every edit
+                // that doesn't re-type it, rather than leaving it untouched.
+                supabase.db.rpc(
+                    "update_member_self",
+                    buildJsonObject {
+                        putJsonObject("p_updates") {
+                            dateOfBirth.ifBlank { null }?.let { put("date_of_birth", it) }
+                            address.ifBlank { null }?.let { put("address", it) }
+                        }
+                    },
+                )
 
                 _state.value = _state.value.copy(isSavingInfo = false, snackbarMessage = "Profile updated")
                 load()
@@ -211,8 +230,17 @@ class ProfileViewModel @Inject constructor(
                 supabase.db["profiles"]
                     .update(AvatarUpdateRequest(avatar_url = path)) { filter { eq("user_id", uid) } }
 
-                _state.value = _state.value.copy(isUploadingAvatar = false, snackbarMessage = "Profile photo updated")
-                load()
+                // Force a fresh sign rather than risk the cached token for
+                // this same path from before the re-upload.
+                signedUrlManager.clearCache()
+                val freshUrl = signedUrlManager.getAvatarUrl(uid, path)
+
+                _state.value = _state.value.copy(
+                    isUploadingAvatar = false,
+                    snackbarMessage = "Profile photo updated",
+                    member = _state.value.member?.copy(avatarUrl = path),
+                    justUploadedAvatarUrl = freshUrl,
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to upload avatar", e)
                 _state.value = _state.value.copy(

@@ -51,14 +51,22 @@ class AirtimeViewModel @Inject constructor(
     fun buyAirtime(network: Network, phone: String, amount: Double) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isSubmitting = true, error = null)
-            try {
-                val member = memberRepository.findCurrentMember()
-                    ?: throw IllegalStateException("Could not determine your member record")
+            val member = memberRepository.findCurrentMember()
+            if (member == null) {
+                _state.value = _state.value.copy(isSubmitting = false, error = "Could not determine your member record")
+                return@launch
+            }
 
-                // No buy-airtime edge function exists on this backend yet
-                // (confirmed via a direct probe — HTTP 404) — this call fails
-                // with a clear message below until one is added; it'll start
-                // working automatically with no code changes once it exists.
+            // No buy-airtime edge function exists on this backend yet
+            // (confirmed via a direct probe — HTTP 404) — this call fails
+            // with a clear message below until one is added; it'll start
+            // working automatically with no code changes once it exists.
+            // Kept as its own try/catch, separate from the transactions
+            // insert below: once this edge function is live, a failure here
+            // means the top-up itself never happened (show "coming soon"/
+            // retry), which is a completely different situation from the
+            // top-up succeeding but only the local record-keeping failing.
+            try {
                 supabase.functions.invoke(
                     function = "buy-airtime",
                     body = buildJsonObject {
@@ -68,7 +76,22 @@ class AirtimeViewModel @Inject constructor(
                         put("amount", amount)
                     },
                 )
+            } catch (e: Exception) {
+                Log.w(TAG, "Airtime top-up failed", e)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    error = "Airtime top-up coming soon. Your admin will enable this feature shortly.",
+                )
+                return@launch
+            }
 
+            soundManager.playSuccess()
+            _state.value = _state.value.copy(
+                isSubmitting = false,
+                successMessage = "₦${amount.toInt()} ${network.label} airtime sent to $phone",
+            )
+
+            runCatching {
                 supabase.db["transactions"].insert(
                     buildJsonObject {
                         put("member_id", member.id)
@@ -78,19 +101,7 @@ class AirtimeViewModel @Inject constructor(
                         put("description", "${network.label} airtime ₦${amount.toInt()}")
                     },
                 )
-
-                soundManager.playSuccess()
-                _state.value = _state.value.copy(
-                    isSubmitting = false,
-                    successMessage = "₦${amount.toInt()} ${network.label} airtime sent to $phone",
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Airtime top-up failed", e)
-                _state.value = _state.value.copy(
-                    isSubmitting = false,
-                    error = "Airtime top-up coming soon. Your admin will enable this feature shortly.",
-                )
-            }
+            }.onFailure { Log.w(TAG, "Airtime succeeded but failed to record transaction", it) }
         }
     }
 

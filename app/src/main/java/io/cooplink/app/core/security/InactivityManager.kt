@@ -70,10 +70,19 @@ class InactivityManager @Inject constructor(
         job?.cancel()
     }
 
-    /** Call when that picker/share sheet returns control to the app. */
+    /** Call when that picker/share sheet returns control to the app.
+     *
+     * The clear is deferred a beat rather than immediate: the Activity
+     * Result callback that calls this can fire right around the same time
+     * as MainActivity.onResume() (sometimes first), so clearing isPaused
+     * synchronously here can race ahead of onResume()'s isPaused check and
+     * let the biometric re-lock fire anyway right after picking a file. */
     fun resumeTimer() {
-        isPaused = false
-        onUserInteraction()
+        scope.launch {
+            delay(500)
+            isPaused = false
+            onUserInteraction()
+        }
     }
 
     /** Call after navigating away to login */

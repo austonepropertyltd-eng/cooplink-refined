@@ -46,8 +46,11 @@ fun AdminDashboardScreen(
     val currency = currentCurrency()
     var showHealthDetail by remember { mutableStateOf(false) }
 
-    val healthValue = state.healthLabel?.let { "%.0f".format(state.healthScorePct) + " · $it" }
-        ?: "%.0f".format(state.healthScorePct)
+    // healthLabel is only ever set alongside a real successful load — using
+    // it as the gate (rather than always formatting healthScorePct) avoids
+    // showing a fabricated-looking "100" next to an error banner if the
+    // very first load fails before any real score has ever come back.
+    val healthValue = state.healthLabel?.let { "%.0f".format(state.healthScorePct) + " · $it" } ?: "—"
 
     val kpis = listOf(
         Kpi("Total Members",    "${state.totalMembers}",                 Icons.Default.Group,          CoopTeal),

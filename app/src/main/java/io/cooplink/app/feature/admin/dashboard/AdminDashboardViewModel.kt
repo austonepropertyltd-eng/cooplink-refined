@@ -7,12 +7,21 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.cooplink.app.auth.AuthRepository
 import io.cooplink.app.core.network.SupabaseClient
 import io.cooplink.app.core.util.retrying
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -106,6 +115,9 @@ class AdminDashboardViewModel @Inject constructor(
     private val _state = MutableStateFlow(AdminDashboardUiState())
     val state: StateFlow<AdminDashboardUiState> = _state.asStateFlow()
 
+    private var realtimeChannel: RealtimeChannel? = null
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     init { load() }
 
     fun refresh() = load()
@@ -121,13 +133,21 @@ class AdminDashboardViewModel @Inject constructor(
     }
 
     private fun load() {
-        viewModelScope.launch {
+        // Rapid period taps (or a refresh while the initial load is still in
+        // flight) would otherwise launch multiple concurrent loads with no
+        // ordering guarantee — a slower response for an older period could
+        // overwrite a faster, more-recently-requested one, leaving the KPIs
+        // and the selected-period chip out of sync.
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             val period = _state.value.selectedPeriod
             _state.value = _state.value.copy(isLoading = true, error = null)
+            var loadedCoopId: String? = null
             try {
                 val result = retrying {
                     val coopId = authRepository.currentCooperativeId()
                         ?: throw IllegalStateException("Could not determine your cooperative")
+                    loadedCoopId = coopId
 
                     coroutineScope {
                         val summaryDeferred = async {
@@ -166,11 +186,49 @@ class AdminDashboardViewModel @Inject constructor(
                     }
                 }
                 _state.value = result
+                loadedCoopId?.let { subscribeToRealtimeChanges(it) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load dashboard analytics", e)
                 _state.value = _state.value.copy(isLoading = false, error = GENERIC_LOAD_ERROR)
             }
         }
+    }
+
+    // Dashboard KPIs come from server-side aggregates (RPC/edge function),
+    // not raw rows, so a change event just re-triggers load() rather than
+    // patching state in-place — debounced since e.g. a bulk repayment import
+    // fires many transaction changes at once.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun subscribeToRealtimeChanges(cooperativeId: String) {
+        if (realtimeChannel != null) return
+        viewModelScope.launch {
+            runCatching {
+                val ch = supabase.realtime.channel("admin_dashboard_$cooperativeId")
+                val loanChanges = ch.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "loans"
+                    filter("cooperative_id", FilterOperator.EQ, cooperativeId)
+                }
+                val memberChanges = ch.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "members"
+                    filter("cooperative_id", FilterOperator.EQ, cooperativeId)
+                }
+                val transactionChanges = ch.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "transactions"
+                    filter("cooperative_id", FilterOperator.EQ, cooperativeId)
+                }
+                merge(loanChanges, memberChanges, transactionChanges)
+                    .debounce(500)
+                    .onEach { load() }
+                    .launchIn(viewModelScope)
+                ch.subscribe()
+                realtimeChannel = ch
+            }.onFailure { Log.w(TAG, "Realtime dashboard subscription failed — KPI cards won't update live", it) }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        realtimeChannel?.let { ch -> viewModelScope.launch { runCatching { ch.unsubscribe() } } }
     }
 
     private suspend fun fetchCoopAnalytics(cooperativeId: String, days: Int): CoopAnalytics = runCatching {
