@@ -304,13 +304,26 @@ class AdminSettingsViewModel @Inject constructor(
 
                 val members = memberRepository.fetchMembersForCooperative(coopId)
                 var creditedCount = 0
+                var failedCount = 0
                 members.forEach { member ->
+                    // A failed balance lookup must not be read as a zero
+                    // balance: that silently yields zero interest, skips the
+                    // member through the `interest > 0.0` guard below, and
+                    // leaves no trace anywhere. Treat it as a failure so the
+                    // period stays open and the member is credited on retry.
                     val balance = runCatching {
                         supabase.db["contributions"]
                             .select { filter { eq("member_id", member.id) } }
                             .decodeList<Contribution>()
                             .sumOf { it.amount }
-                    }.getOrDefault(0.0)
+                    }.onFailure {
+                        Log.w(TAG, "Balance lookup failed for member ${member.id} — interest not credited", it)
+                    }.getOrNull()
+
+                    if (balance == null) {
+                        failedCount++
+                        return@forEach
+                    }
 
                     val interest = balance * (rate / 100.0) * (daysElapsed / 365.0)
                     if (interest > 0.0) {
@@ -324,19 +337,43 @@ class AdminSettingsViewModel @Inject constructor(
                                 },
                             )
                         }.onSuccess { creditedCount++ }
-                            .onFailure { Log.w(TAG, "Failed to credit interest for member ${member.id}", it) }
+                            .onFailure {
+                                failedCount++
+                                Log.w(TAG, "Failed to credit interest for member ${member.id}", it)
+                            }
                     }
                 }
 
-                supabase.db["cooperatives"].update(
-                    buildJsonObject { put("savings_interest_last_credited_at", nowIso()) },
-                ) { filter { eq("id", coopId) } }
+                // Closing the period is what makes a miss irreversible: once
+                // savings_interest_last_credited_at moves, daysElapsed drops to
+                // 0 and every later run throws "already applied", so anyone
+                // skipped above could never be credited for this period through
+                // the UI. Only close it when nothing failed.
+                if (failedCount == 0) {
+                    supabase.db["cooperatives"].update(
+                        buildJsonObject { put("savings_interest_last_credited_at", nowIso()) },
+                    ) { filter { eq("id", coopId) } }
+                }
 
                 val refreshedCoop = cooperativeRepository.fetchCooperative(coopId)
-                _state.value = _state.value.copy(
-                    isApplyingInterest = false, cooperative = refreshedCoop,
-                    snackbarMessage = "Interest credited to $creditedCount member(s)",
-                )
+                _state.value = if (failedCount == 0) {
+                    _state.value.copy(
+                        isApplyingInterest = false, cooperative = refreshedCoop,
+                        snackbarMessage = "Interest credited to $creditedCount member(s)",
+                    )
+                } else {
+                    // Same reporting contract as recordBulkContribution in
+                    // AdminMembersViewModel: say exactly how many landed, and
+                    // warn that a retry re-credits them, since contributions
+                    // carry no per-member idempotency key for this run.
+                    _state.value.copy(
+                        isApplyingInterest = false, cooperative = refreshedCoop,
+                        interestError = "Credited $creditedCount member(s), but $failedCount failed. " +
+                            "This period was left open so no one is permanently skipped — but retrying " +
+                            "will credit the $creditedCount that already succeeded a second time. " +
+                            "Reconcile those before retrying.",
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to apply savings interest", e)
                 _state.value = _state.value.copy(isApplyingInterest = false, interestError = e.message ?: "Could not apply interest. Please try again.")
@@ -398,9 +435,31 @@ class AdminSettingsViewModel @Inject constructor(
                 }
 
                 var finedCount = 0
+                var failedCount = 0
                 overdue.forEach { loan ->
                     val fine = loan.outstandingBalance * (rate / 100.0)
                     if (fine <= 0.0) return@forEach
+
+                    // The loan is stamped BEFORE the fine is inserted, and the
+                    // two are no longer wrapped in a single runCatching. Either
+                    // order can fail half-way, but only this one fails safe: a
+                    // stamp with no fine under-charges the member for a day and
+                    // the next sweep re-fines them, whereas inserting first and
+                    // failing to stamp leaves a real charge on the member with
+                    // nothing recording it — the loan then still matches the
+                    // overdue filter above and is fined a second time for the
+                    // same lapse.
+                    val stamped = runCatching {
+                        supabase.db["loans"].update(LoanFinePatch(nowIso())) { filter { eq("id", loan.id) } }
+                    }.onFailure {
+                        Log.w(TAG, "Could not stamp last_fine_applied_at for loan ${loan.id} — fine not charged", it)
+                    }.isSuccess
+
+                    if (!stamped) {
+                        failedCount++
+                        return@forEach
+                    }
+
                     runCatching {
                         supabase.db["transactions"].insert(
                             NewFineTransactionRequest(
@@ -414,15 +473,25 @@ class AdminSettingsViewModel @Inject constructor(
                                 description    = "Late payment fine",
                             ),
                         )
-                        supabase.db["loans"].update(LoanFinePatch(nowIso())) { filter { eq("id", loan.id) } }
                     }.onSuccess { finedCount++ }
-                        .onFailure { Log.w(TAG, "Failed to apply late fine for loan ${loan.id}", it) }
+                        .onFailure {
+                            failedCount++
+                            Log.w(TAG, "Failed to apply late fine for loan ${loan.id}", it)
+                        }
                 }
 
-                _state.value = _state.value.copy(
-                    isApplyingLateFees = false,
-                    snackbarMessage = "Late fees applied to $finedCount loan(s)",
-                )
+                _state.value = if (failedCount == 0) {
+                    _state.value.copy(
+                        isApplyingLateFees = false,
+                        snackbarMessage = "Late fees applied to $finedCount loan(s)",
+                    )
+                } else {
+                    _state.value.copy(
+                        isApplyingLateFees = false,
+                        lateFeeError = "Late fees applied to $finedCount loan(s), but $failedCount could not be " +
+                            "charged. No member was charged twice; the next sweep picks those loans up again.",
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to apply late fees", e)
                 _state.value = _state.value.copy(isApplyingLateFees = false, lateFeeError = e.message ?: "Could not apply late fees. Please try again.")

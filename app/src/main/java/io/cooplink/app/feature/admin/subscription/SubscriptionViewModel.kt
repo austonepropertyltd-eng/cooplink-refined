@@ -125,7 +125,10 @@ sealed class SubscriptionPaymentState {
     object Initializing                            : SubscriptionPaymentState()
     data class ReadyToOpen(val url: String)        : SubscriptionPaymentState()
     object Verifying                               : SubscriptionPaymentState()
-    data class Success(val planName: String)       : SubscriptionPaymentState()
+    // `warning` carries a non-fatal problem that still needs the admin's
+    // attention — the plan is genuinely active, but something alongside it
+    // failed (see applyPlanUpgrade's subscription_orders insert).
+    data class Success(val planName: String, val warning: String? = null) : SubscriptionPaymentState()
     data class Failed(val message: String)         : SubscriptionPaymentState()
 }
 
@@ -402,7 +405,12 @@ class SubscriptionViewModel @Inject constructor(
             return
         }
 
-        runCatching {
+        // The upgrade itself has already been applied above, so this failing
+        // must not report Failed. But it is the only record tying this
+        // cooperative to the Paystack reference that was charged — without
+        // it a refund or billing query has nothing to reconcile against, so
+        // the admin is told rather than left with a plain success.
+        val orderRecorded = runCatching {
             supabase.db["subscription_orders"].insert(
                 NewSubscriptionOrderRequest(
                     cooperative_id      = coopId,
@@ -419,11 +427,21 @@ class SubscriptionViewModel @Inject constructor(
                     status              = "completed",
                 ),
             )
-        }.onFailure { Log.w(TAG, "Failed to record subscription order for paystack payment", it) }
+        }.onFailure {
+            Log.e(TAG, "Failed to record subscription order for paystack payment (ref: $paystackReference)", it)
+        }.isSuccess
 
         _state.update {
             it.copy(
-                payment            = SubscriptionPaymentState.Success(plan.planName),
+                payment            = SubscriptionPaymentState.Success(
+                    planName = plan.planName,
+                    warning  = if (orderRecorded) {
+                        null
+                    } else {
+                        "Your ${plan.planName} plan is active, but we couldn't save the payment record. " +
+                            "Please keep this reference in case of a billing query: $paystackReference"
+                    },
+                ),
                 currentPlanName    = plan.planName,
                 subscriptionStatus = "active",
                 maxMembers         = plan.maxMembers ?: 999_999,
