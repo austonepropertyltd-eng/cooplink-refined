@@ -49,6 +49,8 @@ class NotificationsViewModel @Inject constructor(
     private val _state = MutableStateFlow(NotificationsUiState())
     val state: StateFlow<NotificationsUiState> = _state.asStateFlow()
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     init { load() }
 
     fun refresh() = load()
@@ -70,7 +72,8 @@ class NotificationsViewModel @Inject constructor(
     }
 
     private fun load() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
 
             val uidForCache = supabase.auth.currentSessionOrNull()?.user?.id

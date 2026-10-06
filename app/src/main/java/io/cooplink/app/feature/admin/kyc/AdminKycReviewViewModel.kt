@@ -96,7 +96,18 @@ class AdminKycReviewViewModel @Inject constructor(
                     val members = memberRepository.fetchMembersForCooperative(coopId)
                     val kycByMemberId = kycRepository.getKycDataForCooperative(coopId)
 
-                    val rows = members.mapNotNull { m -> kycByMemberId[m.id]?.let { KycReviewRow(m, it) } }
+                    // getKycDataForCooperative returns every member with ANY
+                    // KYC submission (verified/rejected/pending alike) — this
+                    // is the review *queue*, so it must only ever show what
+                    // still needs a decision. Without this, an already
+                    // approved/rejected member stays listed forever, risking
+                    // an admin overwriting a prior decision and re-sending a
+                    // contradictory SMS via notifyKycDecision.
+                    val rows = members.mapNotNull { m ->
+                        kycByMemberId[m.id]
+                            ?.takeIf { it.status == io.cooplink.app.core.domain.KycStatus.PENDING }
+                            ?.let { KycReviewRow(m, it) }
+                    }
 
                     AdminKycReviewUiState(isLoading = false, rows = rows)
                 }

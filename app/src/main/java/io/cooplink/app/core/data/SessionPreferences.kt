@@ -31,6 +31,8 @@ class SessionPreferences @Inject constructor(
     private val keyCoopName   = stringPreferencesKey("coop_name")
     private val keyCoopLogo   = stringPreferencesKey("coop_logo")
     private val keyCoopColor  = stringPreferencesKey("coop_color")
+    private val keyCoopOrgType   = stringPreferencesKey("coop_org_type")
+    private val keyCoopWhatsapp  = stringPreferencesKey("coop_whatsapp")
     private val keyCurrency       = stringPreferencesKey("currency_code")
     private val keyCurrencySymbol = stringPreferencesKey("currency_symbol")
 
@@ -60,17 +62,25 @@ class SessionPreferences @Inject constructor(
     // Lets the shell top bar/drawer paint the cooperative's real name and
     // logo instantly on launch, instead of the generic "CoopLink" fallback
     // flashing before the network fetch resolves.
-    data class CachedBranding(val name: String?, val logoUrl: String?, val primaryColor: String?)
+    data class CachedBranding(
+        val name: String?, val logoUrl: String?, val primaryColor: String?,
+        val organizationType: String? = null, val whatsappNumber: String? = null,
+    )
 
     val cachedBrandingFlow: Flow<CachedBranding> = store.data.map {
-        CachedBranding(it[keyCoopName], it[keyCoopLogo], it[keyCoopColor])
+        CachedBranding(it[keyCoopName], it[keyCoopLogo], it[keyCoopColor], it[keyCoopOrgType], it[keyCoopWhatsapp])
     }
 
-    suspend fun saveCachedBranding(name: String?, logoUrl: String?, primaryColor: String?) {
+    suspend fun saveCachedBranding(
+        name: String?, logoUrl: String?, primaryColor: String?,
+        organizationType: String? = null, whatsappNumber: String? = null,
+    ) {
         store.edit {
             name?.let { v -> it[keyCoopName] = v }
             logoUrl?.let { v -> it[keyCoopLogo] = v }
             primaryColor?.let { v -> it[keyCoopColor] = v }
+            organizationType?.let { v -> it[keyCoopOrgType] = v }
+            whatsappNumber?.let { v -> it[keyCoopWhatsapp] = v }
         }
     }
 

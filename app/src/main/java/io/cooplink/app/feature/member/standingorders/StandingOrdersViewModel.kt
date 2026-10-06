@@ -73,6 +73,10 @@ data class StandingOrdersUiState(
     val error: String?                = null,
     val isSubmitting: Boolean         = false,
     val submitError: String?          = null,
+    // True when the list on screen is a local cache and the most recent
+    // refresh attempt failed — the error is intentionally suppressed in that
+    // case (see load()) so this is the only signal the data may be stale.
+    val isShowingStaleCache: Boolean  = false,
 )
 
 @HiltViewModel
@@ -164,7 +168,11 @@ class StandingOrdersViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load standing orders", e)
                 val hasCachedContent = _state.value.orders.isNotEmpty()
-                _state.value = _state.value.copy(isLoading = false, error = if (hasCachedContent) null else GENERIC_LOAD_ERROR)
+                _state.value = _state.value.copy(
+                    isLoading           = false,
+                    error               = if (hasCachedContent) null else GENERIC_LOAD_ERROR,
+                    isShowingStaleCache = hasCachedContent,
+                )
             }
         }
     }

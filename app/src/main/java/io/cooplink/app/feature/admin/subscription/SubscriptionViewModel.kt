@@ -230,6 +230,18 @@ class SubscriptionViewModel @Inject constructor(
                     val coopInfo = coopInfoDeferred.await()
                     val bankDetail = bankDetailDeferred.await()
 
+                    // cooperatives.max_members is a snapshot frozen onto the
+                    // cooperative's row at upgrade time
+                    // (applyPlanUpgrade/AdminSubscriptionOrdersViewModel.approve) —
+                    // it does NOT update itself if the plan's own max_members
+                    // is later changed from Pricing Plans, so it can silently
+                    // go stale. The live plan (matched by name, falling back
+                    // to "starter" for a cooperative that's never upgraded)
+                    // is the source of truth; the stored snapshot is only
+                    // used if no matching plan can be found at all.
+                    val matchedPlan = plans.firstOrNull { it.planName == coopInfo?.plan_name }
+                        ?: plans.firstOrNull { it.planKey == "starter" }
+
                     _state.update {
                         it.copy(
                             isLoading           = false,
@@ -237,7 +249,7 @@ class SubscriptionViewModel @Inject constructor(
                             plans               = plans,
                             currentPlanName     = coopInfo?.plan_name ?: "Free Trial",
                             subscriptionStatus  = coopInfo?.subscription_status ?: "trial",
-                            maxMembers          = coopInfo?.max_members ?: DEFAULT_MAX_MEMBERS,
+                            maxMembers          = matchedPlan?.maxMembers ?: coopInfo?.max_members ?: DEFAULT_MAX_MEMBERS,
                             membersUsed         = membersUsed,
                             trialEndsAt         = coopInfo?.trial_ends_at,
                             bankDetail          = bankDetail,
@@ -365,7 +377,7 @@ class SubscriptionViewModel @Inject constructor(
         val period = _state.value.selectedPeriod
         val pricing = _state.value.pricingByPlan[plan.planKey]
 
-        runCatching {
+        val cooperativeUpdateSucceeded = runCatching {
             supabase.db["cooperatives"].update(
                 SubscriptionOrderPatch(
                     plan_name           = plan.planName,
@@ -373,7 +385,22 @@ class SubscriptionViewModel @Inject constructor(
                     max_members         = plan.maxMembers ?: 999_999,
                 ),
             ) { filter { eq("id", coopId) } }
-        }.onFailure { Log.e(TAG, "Failed to update cooperative after successful payment", it) }
+        }.onFailure { Log.e(TAG, "Failed to update cooperative after successful payment", it) }.isSuccess
+
+        // Paystack has already been charged at this point — the cooperative
+        // row is the actual source of truth for the plan/member-limit, so a
+        // failure here must NOT report Success (the admin would believe the
+        // upgrade applied when it didn't, and the UI would silently revert to
+        // the old plan on next load with no indication money was taken).
+        if (!cooperativeUpdateSucceeded) {
+            _state.update {
+                it.copy(payment = SubscriptionPaymentState.Failed(
+                    "Payment received (ref: $paystackReference), but we couldn't apply your new plan. " +
+                        "Please contact support with this reference — do not pay again.",
+                ))
+            }
+            return
+        }
 
         runCatching {
             supabase.db["subscription_orders"].insert(
@@ -427,7 +454,21 @@ class SubscriptionViewModel @Inject constructor(
                         status                  = "pending",
                     ),
                 )
-            }.onFailure { Log.e(TAG, "Failed to record bank transfer intent", it) }
+            }.onFailure {
+                Log.e(TAG, "Failed to record bank transfer intent", it)
+                // The screen shows a "Transfer Submitted!" confirmation
+                // optimistically the moment the reference is entered, before
+                // this insert even runs — reusing the existing Failed-state
+                // Toast (already wired up for the Paystack flow) is the only
+                // signal the admin gets if the record never actually saved,
+                // which otherwise means no reconciliation record exists at
+                // all for a transfer the admin believes was submitted.
+                _state.update {
+                    it.copy(payment = SubscriptionPaymentState.Failed(
+                        "We couldn't save your transfer submission. Please contact support with reference: $reference",
+                    ))
+                }
+            }
         }
     }
 }

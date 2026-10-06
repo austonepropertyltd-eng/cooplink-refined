@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.cooplink.app.core.util.formatIsoDate
 import io.cooplink.app.ui.theme.*
 
 @Composable
@@ -98,7 +99,7 @@ private fun NotificationRow(n: NotificationItem, onClick: () -> Unit) {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.7f))
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(n.created_at.take(10), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(.4f))
+                Text(formatIsoDate(n.created_at) ?: n.created_at.take(10), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(.4f))
             }
         }
     }

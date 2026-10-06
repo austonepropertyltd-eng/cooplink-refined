@@ -40,6 +40,11 @@ data class LoanCalc(
     val disbursed: Double, val total: Double,
 )
 
+private data class PendingLoanApplication(
+    val planId: String?, val amount: Double, val interestRate: Double,
+    val calc: LoanCalc, val months: Int,
+)
+
 fun calcLoan(principal: Double, rate: Double, adminPct: Double,
              months: Int, type: InterestType): LoanCalc {
     val mr       = rate / 100.0 / 12.0
@@ -68,7 +73,7 @@ fun LoansScreen(
     viewModel: LoansViewModel = hiltViewModel(),
 ) {
     var showApply by remember { mutableStateOf(autoOpenDialog) }
-    var pendingApplication by remember { mutableStateOf<Triple<String?, Double, Double>?>(null) }
+    var pendingApplication by remember { mutableStateOf<PendingLoanApplication?>(null) }
     var showConfetti by remember { mutableStateOf(false) }
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -79,6 +84,16 @@ fun LoansScreen(
             showConfetti = true
             snackbarHostState.showSnackbar("Loan application submitted successfully")
             viewModel.acknowledgeSubmitted()
+        }
+    }
+
+    // Both dialogs (ApplyDialog and the PIN prompt) are already dismissed by
+    // the time submitApplication() runs, so a failure here previously had no
+    // way to reach the user — this is the only remaining surface for it.
+    LaunchedEffect(state.submitError) {
+        state.submitError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearSubmitError()
         }
     }
 
@@ -154,18 +169,29 @@ fun LoansScreen(
 
     if (showApply) {
         ApplyDialog(
-            plans        = state.plans,
-            isSubmitting = state.isSubmitting,
-            error        = state.submitError,
-            onDismiss    = { showApply = false; viewModel.clearSubmitError() },
-            onSubmit     = { planId, amount, rate -> showApply = false; pendingApplication = Triple(planId, amount, rate) },
+            plans           = state.plans,
+            plansLoadFailed = state.plansLoadFailed,
+            isSubmitting    = state.isSubmitting,
+            error           = state.submitError,
+            onDismiss       = { showApply = false; viewModel.clearSubmitError() },
+            onSubmit        = { planId, amount, rate, calc, months ->
+                showApply = false
+                pendingApplication = PendingLoanApplication(planId, amount, rate, calc, months)
+            },
         )
     }
 
-    pendingApplication?.let { (planId, amount, rate) ->
+    pendingApplication?.let { pending ->
         PinEntryDialog(
             title     = "Confirm Loan Application",
-            onSuccess = { pendingApplication = null; viewModel.submitApplication(planId, amount, rate) },
+            onSuccess = {
+                pendingApplication = null
+                viewModel.submitApplication(
+                    planId = pending.planId, amount = pending.amount, interestRate = pending.interestRate,
+                    totalRepayable = pending.calc.total, monthlyPayment = pending.calc.monthly,
+                    adminFee = pending.calc.adminFee, durationMonths = pending.months,
+                )
+            },
             onDismiss = { pendingApplication = null },
         )
     }
@@ -232,10 +258,11 @@ private fun todayIsoDate(): String =
 @Composable
 private fun ApplyDialog(
     plans: List<LoanPlan>,
+    plansLoadFailed: Boolean,
     isSubmitting: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onSubmit: (planId: String?, amount: Double, interestRate: Double) -> Unit,
+    onSubmit: (planId: String?, amount: Double, interestRate: Double, calc: LoanCalc, months: Int) -> Unit,
 ) {
     val currency = currentCurrency()
     var selectedPlan by remember(plans) { mutableStateOf(plans.firstOrNull()) }
@@ -268,7 +295,10 @@ private fun ApplyDialog(
                     Text(it, color = CoopError, style = MaterialTheme.typography.bodySmall)
                 }
 
-                if (plans.isEmpty()) {
+                if (plans.isEmpty() && plansLoadFailed) {
+                    Text("Couldn't load loan plans. Close and pull down to retry.",
+                        color = CoopError, style = MaterialTheme.typography.bodySmall)
+                } else if (plans.isEmpty()) {
                     Text("No loan plans are available for your cooperative yet.",
                         color = Color.White.copy(.6f), style = MaterialTheme.typography.bodySmall)
                 } else {
@@ -331,7 +361,13 @@ private fun ApplyDialog(
         },
         confirmButton = {
             Button(
-                onClick = { amountValue?.let { onSubmit(selectedPlan?.id, it, DEFAULT_INTEREST_RATE) } },
+                onClick = {
+                    val c = calc
+                    val m = months.toIntOrNull()
+                    if (amountValue != null && c != null && m != null) {
+                        onSubmit(selectedPlan?.id, amountValue, DEFAULT_INTEREST_RATE, c, m)
+                    }
+                },
                 enabled = calc != null && withinBounds && !isSubmitting,
                 colors = ButtonDefaults.buttonColors(containerColor = MemberGreen)) {
                 if (isSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

@@ -14,6 +14,9 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -55,6 +58,17 @@ class AuthRepository @Inject constructor(
     private val signedUrlManager: SignedUrlManager,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
+    // In-memory only (never persisted) — a super admin's "currently viewing"
+    // cooperative, distinct from their own home cooperative_id on user_roles.
+    // Resets on logout (see below) and on process death, so a stale selection
+    // can never silently carry into a new session. Every other role ignores
+    // this entirely; see currentCooperativeId()/fetchCurrentUser() below,
+    // which are the only two places that read it.
+    private val _overrideCooperativeId = MutableStateFlow<String?>(null)
+    val overrideCooperativeId: StateFlow<String?> = _overrideCooperativeId.asStateFlow()
+
+    fun setOverrideCooperativeId(id: String?) { _overrideCooperativeId.value = id }
 
     // ── Member login ──────────────────────────────────────────────────────────
     // Each attempt is bounded by MEMBER_LOGIN_CALL_TIMEOUT_MS (5s) — shorter than
@@ -139,6 +153,7 @@ class AuthRepository @Inject constructor(
     // ── Logout ────────────────────────────────────────────────────────────────
     suspend fun logout(): Result<Unit> = runCatching {
         signedUrlManager.clearCache()
+        _overrideCooperativeId.value = null
         supabase.auth.signOut()
     }
 
@@ -171,7 +186,17 @@ class AuthRepository @Inject constructor(
 
         sessionPreferences.saveCachedRole(role.name)
 
-        return buildUser(uid, session, role, row?.cooperative_id, row?.tenant_id)
+        // A super admin viewing a different cooperative than their own must
+        // see THAT cooperative's branding (name/logo/theme), not their home
+        // one — otherwise the shell would show one cooperative's identity
+        // while every screen's data is scoped to another.
+        val effectiveCoopId = if (role == UserRole.SUPER_ADMIN) {
+            _overrideCooperativeId.value ?: row?.cooperative_id
+        } else {
+            row?.cooperative_id
+        }
+
+        return buildUser(uid, session, role, effectiveCoopId, row?.tenant_id)
     }
 
     // No user_roles row — fall back to checking whether this uid has a members
@@ -232,12 +257,22 @@ class AuthRepository @Inject constructor(
     fun isLoggedIn(): Boolean = supabase.auth.currentSessionOrNull() != null
 
     // ── Cooperative scoping (admin screens) ───────────────────────────────────
+    // The single choke point every admin ViewModel scopes its queries
+    // through — a super admin viewing a different cooperative gets that
+    // cooperative's id here automatically, with no other file needing to
+    // know an override exists.
     suspend fun currentCooperativeId(): String? {
         val uid = supabase.auth.currentSessionOrNull()?.user?.id ?: return null
-        return supabase.db["user_roles"]
+        val row = supabase.db["user_roles"]
             .select { filter { eq("user_id", uid) } }
             .decodeSingleOrNull<UserRoleRow>()
-            ?.cooperative_id
+            ?: return null
+
+        return if (mapRole(row.role) == UserRole.SUPER_ADMIN) {
+            _overrideCooperativeId.value ?: row.cooperative_id
+        } else {
+            row.cooperative_id
+        }
     }
 
     suspend fun resetMemberPassword(memberId: String): Result<Unit> = runCatching {

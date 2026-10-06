@@ -90,7 +90,11 @@ class SignedUrlManager @Inject constructor(
                 supabase.functions.invoke(
                     function = "sign-urls",
                     body = buildJsonObject {
-                        put("paths", buildJsonArray {
+                        // The edge function's validation error ("items must
+                        // be 1-25") names its expected field "items", not
+                        // "paths" — sending "paths" left it seeing an empty
+                        // array and rejecting every request with a 400.
+                        put("items", buildJsonArray {
                             distinct.forEach { p ->
                                 add(buildJsonObject {
                                     put("bucket", p.bucket)
@@ -105,7 +109,15 @@ class SignedUrlManager @Inject constructor(
             val now = System.currentTimeMillis() / 1000
             parsed.signed.associate { item ->
                 val key = "${item.bucket}/${item.path}"
-                if (item.signedUrl != null) cache[key] = item.signedUrl to (now + CACHE_TTL_SECONDS)
+                if (item.signedUrl != null) {
+                    cache[key] = item.signedUrl to (now + CACHE_TTL_SECONDS)
+                } else {
+                    // The HTTP call itself succeeded, so the catch block below
+                    // never sees this — a per-item failure (e.g. object not
+                    // found) only ever shows up in item.error, which was
+                    // otherwise silently dropped.
+                    Log.w(TAG, "sign-urls returned no signed_url for $key: ${item.error}")
+                }
                 key to item.signedUrl
             }
         } catch (e: Exception) {

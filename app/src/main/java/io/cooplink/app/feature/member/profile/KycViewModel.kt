@@ -10,6 +10,7 @@ import io.cooplink.app.core.data.SignedUrlManager
 import io.cooplink.app.core.domain.IdType
 import io.cooplink.app.core.domain.KycData
 import io.cooplink.app.core.domain.KycStatus
+import io.cooplink.app.core.network.SupabaseClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,7 @@ class KycViewModel @Inject constructor(
     private val kycRepository: KycRepository,
     private val memberRepository: MemberRepository,
     private val signedUrlManager: SignedUrlManager,
+    private val supabase: SupabaseClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(KycUiState())
@@ -43,11 +45,13 @@ class KycViewModel @Inject constructor(
     // this, while kycData.idDocumentUrl (shown on screen) is always a
     // resolved signed URL, never a raw path.
     private var pendingIdDocumentPath: String? = null
+    private var loadJob: kotlinx.coroutines.Job? = null
 
     init { loadKycData() }
 
     fun loadKycData() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             try {
                 val member = memberRepository.findCurrentMember()
@@ -70,7 +74,17 @@ class KycViewModel @Inject constructor(
             kycRepository.uploadKycImage(mid, bytes, "id_document")
                 .onSuccess { path ->
                     pendingIdDocumentPath = path
-                    val displayUrl = userId?.let { signedUrlManager.getKycDocUrl(it, mid, "id_document") }
+                    // uploadKycImage() just wrote this file under the LIVE
+                    // session's auth uid (see KycRepository) regardless of
+                    // whatever members.user_id holds — that column is null
+                    // for some migrated/seeded rows, and falling back to the
+                    // member's own row id there signs a URL for a path that
+                    // was never written to, which Supabase happily signs
+                    // anyway (signing doesn't check existence) and Coil then
+                    // fails to render. Signing with the same uid the upload
+                    // just used is the only way to guarantee the paths match.
+                    val authUid = supabase.auth.currentSessionOrNull()?.user?.id ?: userId ?: mid
+                    val displayUrl = signedUrlManager.getKycDocUrl(authUid, mid, "id_document")
                     _state.update {
                         it.copy(isUploading = false, kycData = it.kycData.copy(idDocumentUrl = displayUrl), successMessage = "ID document uploaded")
                     }

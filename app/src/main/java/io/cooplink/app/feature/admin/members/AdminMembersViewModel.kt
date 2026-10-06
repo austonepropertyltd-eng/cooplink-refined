@@ -173,9 +173,13 @@ class AdminMembersViewModel @Inject constructor(
 
     fun sendBulkSms(memberIds: Set<String>, message: String) {
         viewModelScope.launch {
+            val recipients = _state.value.members.filter { it.id in memberIds }.mapNotNull { it.phone }
+            if (recipients.isEmpty()) {
+                _state.value = _state.value.copy(bulkError = "None of the selected members have a phone number on file.")
+                return@launch
+            }
             _state.value = _state.value.copy(isBulkProcessing = true, bulkError = null)
             try {
-                val recipients = _state.value.members.filter { it.id in memberIds }.mapNotNull { it.phone }
                 supabase.functions.invoke(
                     function = "send-sms",
                     body = buildJsonObject {
@@ -197,9 +201,18 @@ class AdminMembersViewModel @Inject constructor(
     fun recordBulkContribution(memberIds: Set<String>, amount: Double) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isBulkProcessing = true, bulkError = null)
-            try {
-                val coopId = authRepository.currentCooperativeId()
-                memberIds.forEach { memberId ->
+            val coopId = authRepository.currentCooperativeId()
+
+            // Each insert is independent — one member's failure (network
+            // blip, RLS, etc.) shouldn't abandon the rest of the batch, and
+            // the admin needs to know exactly how many actually went through
+            // rather than a blanket failure that could hide partial success
+            // (which would also make a naive retry insert duplicates for the
+            // members that already succeeded).
+            var succeeded = 0
+            var failed = 0
+            memberIds.forEach { memberId ->
+                runCatching {
                     supabase.db["contributions"].insert(
                         buildJsonObject {
                             put("member_id", memberId)
@@ -208,15 +221,20 @@ class AdminMembersViewModel @Inject constructor(
                             put("status", "pending")
                         },
                     )
-                }
-                _state.value = _state.value.copy(
-                    isBulkProcessing = false,
-                    snackbarMessage  = "Contribution recorded for ${memberIds.size} member(s)",
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Bulk contribution failed", e)
-                _state.value = _state.value.copy(isBulkProcessing = false, bulkError = "Could not record contributions. Please try again.")
+                }.onFailure { Log.w(TAG, "Bulk contribution failed for member $memberId", it) }
+                    .fold(onSuccess = { succeeded++ }, onFailure = { failed++ })
             }
+
+            _state.value = if (failed == 0) {
+                _state.value.copy(isBulkProcessing = false, snackbarMessage = "Contribution recorded for $succeeded member(s)")
+            } else {
+                _state.value.copy(
+                    isBulkProcessing = false,
+                    bulkError = "Recorded for $succeeded of ${memberIds.size} member(s) — $failed failed. " +
+                        "Check before retrying to avoid duplicate entries for members that already succeeded.",
+                )
+            }
+            load()
         }
     }
 

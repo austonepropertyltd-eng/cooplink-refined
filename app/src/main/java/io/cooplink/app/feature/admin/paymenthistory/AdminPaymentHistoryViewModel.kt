@@ -20,7 +20,10 @@ import javax.inject.Inject
 
 private const val TAG = "AdminPaymentHistoryVM"
 private const val GENERIC_LOAD_ERROR = "Could not load payment history. Pull down to retry."
-private val CREDIT_TYPES = setOf("contribution", "deposit", "wallet_funding", "repayment")
+// "loan_repayment" is the actual value AdminRepaymentsViewModel writes
+// (confirmed against AdminTransactionsViewModel's CREDIT_TYPES) — "repayment"
+// alone was silently misclassifying every recorded repayment as a debit.
+private val CREDIT_TYPES = setOf("contribution", "deposit", "wallet_funding", "repayment", "loan_repayment")
 
 enum class PaymentTypeFilter(val label: String) {
     ALL("All"), CONTRIBUTIONS("Contributions"), REPAYMENTS("Repayments"),

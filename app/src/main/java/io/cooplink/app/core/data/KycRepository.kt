@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,15 +37,6 @@ private data class KycColumnsRow(
     val kyc_notes: String?         = null,
 )
 
-@Serializable
-private data class KycSubmitRequest(
-    val id_type: String,
-    val id_number: String,
-    val id_document_url: String?,
-    val kyc_status: String,
-    val kyc_submitted_at: String,
-)
-
 private val COLUMNS = Columns.list(
     "id", "user_id", "id_type", "id_number", "id_document_url", "selfie_url",
     "bvn", "nin", "kyc_status", "kyc_submitted_at", "kyc_verified_at", "kyc_notes",
@@ -64,9 +56,9 @@ class KycRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val signedUrlManager: SignedUrlManager,
 ) {
-    private suspend fun KycColumnsRow.toKycData(): KycData = coroutineScope {
+    private suspend fun KycColumnsRow.toKycData(preferredUid: String? = null): KycData = coroutineScope {
         val idType = id_type?.let { raw -> IdType.entries.find { it.name.equals(raw, ignoreCase = true) } }
-        val uid = user_id ?: id
+        val uid = preferredUid ?: user_id ?: id
 
         val idDocDeferred = async { uid?.let { signedUrlManager.getKycDocUrl(it, id ?: it, "id_document") } }
         val selfieDeferred = async { uid?.let { signedUrlManager.getKycDocUrl(it, id ?: it, "selfie") } }
@@ -85,10 +77,17 @@ class KycRepository @Inject constructor(
         )
     }
 
+    // Always "my own" record (the member self-service screen) — the live
+    // session's auth uid is guaranteed to match wherever uploadKycImage()
+    // actually wrote to, unlike members.user_id, which is null/stale on some
+    // migrated rows and would otherwise sign a URL for a path that was never
+    // written (see KycViewModel.uploadIdDocument for the matching upload-time
+    // fix). getKycDataForCooperative (admin, other members) can't use this
+    // shortcut and keeps the user_id ?: id fallback.
     suspend fun getKycData(memberId: String): KycData = runCatching {
         val result = supabase.db["members"].select(COLUMNS) { filter { eq("id", memberId) } }
         val row = result.decodeSingleOrNull<KycColumnsRow>() ?: return@runCatching KycData()
-        row.toKycData()
+        row.toKycData(preferredUid = supabase.auth.currentSessionOrNull()?.user?.id)
     }.onFailure { Log.w(TAG, "Failed to load KYC data for $memberId", it) }.getOrDefault(KycData())
 
     /** All members of a cooperative with a KYC submission, keyed by member id
@@ -115,21 +114,32 @@ class KycRepository @Inject constructor(
         path
     }.onFailure { Log.w(TAG, "KYC image upload ($docType) for $memberId failed", it) }
 
+    // Direct UPDATEs to `members` are blocked by RLS — this RPC is the only
+    // path members have to edit their own row, scoped server-side to
+    // auth.uid() (memberId is accepted here only for the failure log, not
+    // sent to the function).
     suspend fun submitKyc(
         memberId: String,
         idType: IdType,
         idNumber: String,
         idDocumentPath: String?,
     ): Result<Unit> = runCatching {
-        supabase.db["members"].update(
-            KycSubmitRequest(
-                id_type          = idType.name,
-                id_number        = idNumber,
-                id_document_url  = idDocumentPath,
-                kyc_status       = "pending",
-                kyc_submitted_at = nowIso(),
-            ),
-        ) { filter { eq("id", memberId) } }
+        supabase.db.rpc(
+            "update_member_self",
+            buildJsonObject {
+                putJsonObject("p_updates") {
+                    put("id_type", idType.name)
+                    put("id_number", idNumber)
+                    // Omitted (not sent as explicit null) when there's no new
+                    // upload this session — a resubmission (e.g. correcting
+                    // the ID number after a rejection) would otherwise wipe
+                    // out an already-uploaded document that's still valid.
+                    idDocumentPath?.let { put("id_document_url", it) }
+                    put("kyc_status", "pending")
+                    put("kyc_submitted_at", nowIso())
+                }
+            },
+        )
         Unit
     }.onFailure { Log.e(TAG, "Failed to submit KYC for $memberId", it) }
 

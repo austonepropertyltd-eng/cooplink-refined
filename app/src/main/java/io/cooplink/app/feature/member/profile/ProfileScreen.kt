@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.cooplink.app.core.ui.MemberAvatar
+import io.cooplink.app.core.util.formatIsoDate
 import io.cooplink.app.core.util.generateAndOpenStatementPdf
 import io.cooplink.app.feature.shell.CooperativeBrandingUiState
 import io.cooplink.app.feature.shell.CooperativeLogoImage
@@ -124,6 +125,7 @@ fun ProfileScreen(
                             avatarPath = member?.avatarUrl,
                             fullName = member?.fullName,
                             signedUrlManager = viewModel.signedUrlManager,
+                            resolvedUrlOverride = state.justUploadedAvatarUrl,
                             size = 100.dp,
                             modifier = Modifier.border(3.dp, CoopTeal, CircleShape),
                         )
@@ -149,7 +151,7 @@ fun ProfileScreen(
                     Text(branding.name ?: "CoopLink", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.6f))
                 }
                 Spacer(Modifier.height(10.dp))
-                StatusBadge(member?.status ?: "active")
+                StatusBadge(member?.status ?: "—")
                 Spacer(Modifier.height(14.dp))
                 ProfileDetailRow(Icons.Default.Email, member?.email ?: "—")
                 Spacer(Modifier.height(6.dp))
@@ -180,6 +182,36 @@ fun ProfileScreen(
                             Icon(Icons.Default.ContentCopy, "Copy Member ID", tint = MemberGold, modifier = Modifier.size(18.dp))
                         }
                     }
+                }
+            }
+        }
+
+        // Which cooperative/tenant this member is registered with — separate
+        // from the small logo+name row above, which is shell branding shown
+        // on every screen; this is specifically about registration details.
+        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Cooperative Registration", style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CooperativeLogoImage(branding.logoUrl, size = 36.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(branding.name ?: "CoopLink", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                        Text(branding.orgType.label, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(.55f))
+                    }
+                }
+                branding.whatsappNumber?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(10.dp))
+                    ProfileDetailRow(Icons.Default.Chat, it)
+                }
+                formatIsoDate(member?.createdAt)?.let {
+                    Spacer(Modifier.height(6.dp))
+                    ProfileDetailRow(Icons.Default.CalendarMonth, "Member since $it")
                 }
             }
         }
@@ -319,7 +351,27 @@ fun ProfileScreen(
     }
 
     if (showChangePin) {
-        io.cooplink.app.feature.member.security.SetupPinScreen(onDone = { showChangePin = false })
+        val pinViewModel: io.cooplink.app.feature.member.security.TransactionPinViewModel = hiltViewModel()
+        val pinAlreadySet by pinViewModel.isPinSet.collectAsState()
+        var oldPinVerified by remember { mutableStateOf(false) }
+
+        // Changing an existing PIN requires re-entering the current one first —
+        // otherwise anyone with the app open could silently overwrite it and
+        // use the new PIN to authorize payments, defeating its purpose as a
+        // second factor. First-time setup (no PIN set yet) has nothing to verify.
+        if (pinAlreadySet && !oldPinVerified) {
+            io.cooplink.app.feature.member.security.PinEntryDialog(
+                title = "Enter Current PIN",
+                viewModel = pinViewModel,
+                onSuccess = { oldPinVerified = true },
+                onDismiss = { showChangePin = false },
+            )
+        } else {
+            io.cooplink.app.feature.member.security.SetupPinScreen(
+                viewModel = pinViewModel,
+                onDone = { showChangePin = false },
+            )
+        }
     }
 }
 

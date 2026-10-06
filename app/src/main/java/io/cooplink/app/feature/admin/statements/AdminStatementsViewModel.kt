@@ -84,7 +84,11 @@ class AdminStatementsViewModel @Inject constructor(
                         MonthlyStatement(
                             month                   = month,
                             contributionsCollected  = contributions.filter { it.createdAt.take(7) == month }.sumOf { it.amount },
-                            loanDisbursements       = disbursed.filter { it.disbursedAt?.take(7) == month }.sumOf { it.outstandingBalance },
+                            // amount_requested is the original, unchanging loan
+                            // size — outstandingBalance shrinks as repayments
+                            // come in, which would make this historical figure
+                            // keep changing every time the statement reloads.
+                            loanDisbursements       = disbursed.filter { it.disbursedAt?.take(7) == month }.sumOf { it.amountRequested ?: it.outstandingBalance },
                             repaymentsReceived      = repayments.filter { it.createdAt.take(7) == month }.sumOf { it.amount },
                         )
                     }
